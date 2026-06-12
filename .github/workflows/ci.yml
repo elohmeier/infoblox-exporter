@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Check module files
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector and coverage
+        run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
+
+      - name: Enforce coverage
+        run: |
+          go tool cover -func=coverage.out
+          coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')"
+          test "$coverage" = "100.0%"
+
+      - name: Build
+        run: go build .
+
+      - name: Build container image
+        run: docker build -t infoblox-exporter:ci .
