@@ -507,32 +507,43 @@ func (e *Exporter) collectServiceRestart(ctx context.Context, ch chan<- promethe
 
 func (e *Exporter) collectCapacity(ctx context.Context, ch chan<- prometheus.Metric) error {
 	params := fields("name", "hardware_type", "role", "max_capacity", "percent_used", "total_objects", "object_counts")
-	reports, err := wapi.FetchAll[model.CapacityReport](ctx, e.client, "capacityreport", params)
+	members, err := wapi.FetchAll[model.Member](ctx, e.client, "member", fields("host_name"))
 	if err != nil {
 		return err
 	}
-	for _, report := range reports {
-		ch <- prometheus.MustNewConstMetric(e.capacityInfo, prometheus.GaugeValue, 1, report.Name, report.Role, report.HardwareType)
-		if report.PercentUsed.Valid {
-			ch <- prometheus.MustNewConstMetric(e.capacityUsed, prometheus.GaugeValue, utilizationRatio(report.PercentUsed.Value), report.Name, report.Role, report.HardwareType)
+	for _, member := range members {
+		if member.HostName == "" {
+			continue
 		}
-		emitUint(ch, e.capacityMax, report.MaxCapacity, report.Name, report.Role, report.HardwareType)
-		emitUint(ch, e.capacityObjects, report.TotalObjects, report.Name, report.Role, report.HardwareType)
-		for _, count := range report.ObjectCounts {
-			objectType := firstString(count, "type", "object_type", "name")
-			value, ok := firstNumber(count, "count", "total", "value")
-			if objectType == "" || !ok {
-				continue
+		query := cloneValues(params)
+		query.Set("name", member.HostName)
+		reports, err := wapi.FetchAll[model.CapacityReport](ctx, e.client, "capacityreport", query)
+		if err != nil {
+			return err
+		}
+		for _, report := range reports {
+			ch <- prometheus.MustNewConstMetric(e.capacityInfo, prometheus.GaugeValue, 1, report.Name, report.Role, report.HardwareType)
+			if report.PercentUsed.Valid {
+				ch <- prometheus.MustNewConstMetric(e.capacityUsed, prometheus.GaugeValue, utilizationRatio(report.PercentUsed.Value), report.Name, report.Role, report.HardwareType)
 			}
-			ch <- prometheus.MustNewConstMetric(e.capacityObjectType, prometheus.GaugeValue, value, report.Name, objectType)
+			emitUint(ch, e.capacityMax, report.MaxCapacity, report.Name, report.Role, report.HardwareType)
+			emitUint(ch, e.capacityObjects, report.TotalObjects, report.Name, report.Role, report.HardwareType)
+			for _, count := range report.ObjectCounts {
+				objectType := firstString(count, "type", "object_type", "name")
+				value, ok := firstNumber(count, "count", "total", "value")
+				if objectType == "" || !ok {
+					continue
+				}
+				ch <- prometheus.MustNewConstMetric(e.capacityObjectType, prometheus.GaugeValue, value, report.Name, objectType)
+			}
 		}
 	}
 	return nil
 }
 
 func (e *Exporter) collectLicenses(ctx context.Context, ch chan<- prometheus.Metric) error {
-	params := fields("type", "kind", "limit", "limit_context", "expiration_status", "expiry_date", "hwid")
-	memberLicenses, err := wapi.FetchAll[model.License](ctx, e.client, "member:license", params)
+	memberParams := fields("type", "kind", "limit", "limit_context", "expiration_status", "expiry_date", "hwid")
+	memberLicenses, err := wapi.FetchAll[model.License](ctx, e.client, "member:license", memberParams)
 	if err != nil {
 		return err
 	}
@@ -541,7 +552,8 @@ func (e *Exporter) collectLicenses(ctx context.Context, ch chan<- prometheus.Met
 		e.emitLicense(ch, license)
 	}
 
-	gridLicenses, err := wapi.FetchAll[model.License](ctx, e.client, "license:gridwide", params)
+	gridParams := fields("type", "limit", "limit_context", "expiration_status", "expiry_date", "hwid")
+	gridLicenses, err := wapi.FetchAll[model.License](ctx, e.client, "license:gridwide", gridParams)
 	if err != nil {
 		return err
 	}
@@ -620,7 +632,7 @@ func (e *Exporter) collectDHCPStatistics(ctx context.Context, ch chan<- promethe
 	for _, object := range objects {
 		query := cloneValues(params)
 		query.Set("statistics_object", object.ref)
-		stats, err := wapi.FetchAll[model.DHCPStatistics](ctx, e.client, "dhcp:statistics", query)
+		stats, err := wapi.FetchAllUnpaged[model.DHCPStatistics](ctx, e.client, "dhcp:statistics", query)
 		if err != nil {
 			return err
 		}
@@ -743,7 +755,7 @@ func (e *Exporter) collectIPAMStatistics(ctx context.Context, ch chan<- promethe
 }
 
 func (e *Exporter) collectIPAMStatisticsForQuery(ctx context.Context, ch chan<- prometheus.Metric, view string, network string) error {
-	params := fields("network", "network_view", "cidr", "conflict_count", "unmanaged_count", "utilization", "utilization_update")
+	params := fields("network", "network_view", "cidr", "unmanaged_count", "utilization", "utilization_update")
 	if view != "" {
 		params.Set("network_view", view)
 	}
@@ -796,17 +808,14 @@ func (e *Exporter) collectDHCPFailover(ctx context.Context, ch chan<- prometheus
 }
 
 func (e *Exporter) collectAllRecords(ctx context.Context, ch chan<- prometheus.Metric) error {
+	if len(e.cfg.Zones) == 0 {
+		return nil
+	}
 	for _, view := range viewsOrSingleEmpty(e.cfg.DNSViews) {
-		if len(e.cfg.Zones) > 0 {
-			for _, zone := range e.cfg.Zones {
-				if err := e.collectAllRecordsForQuery(ctx, ch, view, zone); err != nil {
-					return err
-				}
+		for _, zone := range e.cfg.Zones {
+			if err := e.collectAllRecordsForQuery(ctx, ch, view, zone); err != nil {
+				return err
 			}
-			continue
-		}
-		if err := e.collectAllRecordsForQuery(ctx, ch, view, ""); err != nil {
-			return err
 		}
 	}
 	return nil

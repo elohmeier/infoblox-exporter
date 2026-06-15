@@ -24,7 +24,6 @@ func Default() Config {
 		Labels:   map[string]string{},
 		Timeout:  30 * time.Second,
 		PageSize: 1000,
-		DNSViews: []string{"default"},
 		UpgradeStatusTypes: []string{
 			"GRID",
 			"GROUP",

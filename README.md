@@ -69,7 +69,7 @@ Flags follow the same style as the neighboring NetScaler exporter:
 | `-ignore-cert` | `INFOBLOX_IGNORE_CERT` | `false` | Disable TLS certificate verification. `INFOBLOX_EXPORTER_INSECURE_SKIP_VERIFY` is also accepted. |
 | `-ca-file` | `INFOBLOX_CA_FILE` | none | Custom CA bundle path. |
 | `-network-views` | `INFOBLOX_NETWORK_VIEWS` | all | Comma-separated network views for IPAM/DHCP collectors. |
-| `-dns-views` | `INFOBLOX_DNS_VIEWS` | `default` | Comma-separated DNS views. |
+| `-dns-views` | `INFOBLOX_DNS_VIEWS` | all | Comma-separated DNS views. |
 | `-networks` | `INFOBLOX_NETWORKS` | none | Comma-separated CIDRs for network, range, IPv4 address, DHCP statistics, and IPAM statistics collectors. |
 | `-zones` | `INFOBLOX_ZONES` | none | Comma-separated DNS zones for `allrecords` and `zones`. |
 | `-upgrade-status-types` | `INFOBLOX_UPGRADE_STATUS_TYPES` | `GRID,GROUP,VNODE,PNODE` | Upgrade status object types to query. |
@@ -84,7 +84,7 @@ The `network`, `range`, and `member` collectors can query all objects in the con
 
 The `ipv4address` collector requires explicit `-networks` entries. This avoids accidentally walking very large IPAM spaces.
 
-The `allrecords` collector emits one `infoblox_dns_record_info` metric per DNS record plus aggregate counts. Scope it with `-dns-views` and `-zones` when possible; exporting every record in a large Grid can create substantial Prometheus cardinality.
+The `allrecords` collector emits one `infoblox_dns_record_info` metric per DNS record plus aggregate counts. It requires explicit `-zones` entries because WAPI requires a zone search parameter for allrecords searches. Use `-dns-views` when you need to restrict DNS views.
 
 WAPI-accessible operational collectors include restart service status, service restart requests, capacity reports, licenses, upgrade status, DHCP statistics, IPAM statistics, DHCP failover, DTC object state, and threat protection numeric statistics.
 

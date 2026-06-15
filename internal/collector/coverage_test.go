@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,9 +111,17 @@ func TestCollectorPrimaryErrorPaths(t *testing.T) {
 		{name: "dhcpfailover", call: func(ctx context.Context, e *Exporter, ch chan prometheus.Metric) error {
 			return e.collectDHCPFailover(ctx, ch)
 		}},
-		{name: "allrecords", call: func(ctx context.Context, e *Exporter, ch chan prometheus.Metric) error {
-			return e.collectAllRecords(ctx, ch)
-		}},
+		{
+			name: "allrecords",
+			cfg: func() config.Config {
+				cfg := config.Default()
+				cfg.Zones = []string{"example.test"}
+				return cfg
+			},
+			call: func(ctx context.Context, e *Exporter, ch chan prometheus.Metric) error {
+				return e.collectAllRecords(ctx, ch)
+			},
+		},
 		{name: "zones", call: func(ctx context.Context, e *Exporter, ch chan prometheus.Metric) error {
 			return e.collectZones(ctx, ch)
 		}},
@@ -322,6 +331,116 @@ func TestCollectorsWithoutNetworkScope(t *testing.T) {
 }
 
 func TestCollectorScopedBranches(t *testing.T) {
+	t.Run("capacity is scoped by member name", func(t *testing.T) {
+		seenCapacity := false
+		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wapi/v2.13.7/member":
+				writeResult(t, w, []map[string]interface{}{{"host_name": "member-a"}})
+			case "/wapi/v2.13.7/capacityreport":
+				seenCapacity = true
+				if got := r.URL.Query().Get("name"); got != "member-a" {
+					t.Fatalf("capacityreport missing member name: %q", got)
+				}
+				writeResult(t, w, []map[string]interface{}{})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		})
+		defer cleanup()
+		if err := exporter.collectCapacity(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+		if !seenCapacity {
+			t.Fatalf("capacityreport was not queried")
+		}
+	})
+
+	t.Run("gridwide license omits unsupported kind field", func(t *testing.T) {
+		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wapi/v2.13.7/member:license":
+				writeResult(t, w, []map[string]interface{}{})
+			case "/wapi/v2.13.7/license:gridwide":
+				if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "kind") {
+					t.Fatalf("gridwide license requested unsupported kind field: %s", fields)
+				}
+				writeResult(t, w, []map[string]interface{}{})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		})
+		defer cleanup()
+		if err := exporter.collectLicenses(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("dhcp statistics reference reads are not paged", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Networks = []string{"10.0.0.0/24"}
+		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wapi/v2.13.7/network":
+				writeResult(t, w, []map[string]interface{}{{"_ref": "network/ref", "network": "10.0.0.0/24"}})
+			case "/wapi/v2.13.7/range":
+				writeResult(t, w, []map[string]interface{}{})
+			case "/wapi/v2.13.7/dhcp:statistics":
+				if got := r.URL.Query().Get("_paging"); got != "" {
+					t.Fatalf("dhcp statistics reference read should not use paging: %q", got)
+				}
+				writeObject(t, w, map[string]interface{}{})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		})
+		defer cleanup()
+		if err := exporter.collectDHCPStatistics(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("ipam statistics omits unavailable conflict count field", func(t *testing.T) {
+		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
+			if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "conflict_count") {
+				t.Fatalf("ipam statistics requested unavailable conflict_count field: %s", fields)
+			}
+			writeObject(t, w, map[string]interface{}{})
+		})
+		defer cleanup()
+		if err := exporter.collectIPAMStatistics(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("allrecords skips unscoped collection", func(t *testing.T) {
+		requested := false
+		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, _ *http.Request) {
+			requested = true
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+		})
+		defer cleanup()
+		if err := exporter.collectAllRecords(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+		if requested {
+			t.Fatalf("allrecords should not query without configured zones")
+		}
+	})
+
+	t.Run("zones does not assume default dns view", func(t *testing.T) {
+		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
+			if got := r.URL.Query().Get("view"); got != "" {
+				t.Fatalf("unexpected default view filter: %q", got)
+			}
+			writeResult(t, w, []map[string]interface{}{})
+		})
+		defer cleanup()
+		if err := exporter.collectZonesForObject(context.Background(), metricBuffer(), "zone_auth"); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("allrecords zones", func(t *testing.T) {
 		cfg := config.Default()
 		cfg.Zones = []string{"example.test"}

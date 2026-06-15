@@ -130,6 +130,18 @@ func FetchAll[T any](ctx context.Context, c *Client, object string, params url.V
 	if err != nil {
 		return nil, err
 	}
+	return decodeRawItems[T](raw)
+}
+
+func FetchAllUnpaged[T any](ctx context.Context, c *Client, object string, params url.Values) ([]T, error) {
+	raw, err := c.FetchAllRawUnpaged(ctx, object, params)
+	if err != nil {
+		return nil, err
+	}
+	return decodeRawItems[T](raw)
+}
+
+func decodeRawItems[T any](raw []json.RawMessage) ([]T, error) {
 	out := make([]T, 0, len(raw))
 	for _, item := range raw {
 		var decoded T
@@ -167,6 +179,17 @@ func (c *Client) FetchAllRaw(ctx context.Context, object string, params url.Valu
 		query = url.Values{"_page_id": []string{nextPageID}}
 	}
 	return all, nil
+}
+
+func (c *Client) FetchAllRawUnpaged(ctx context.Context, object string, params url.Values) ([]json.RawMessage, error) {
+	query := cloneValues(params)
+
+	var raw json.RawMessage
+	if err := c.get(ctx, object, query, &raw); err != nil {
+		return nil, err
+	}
+	result, _, err := decodePage(raw)
+	return result, err
 }
 
 func (c *Client) get(ctx context.Context, object string, params url.Values, dest interface{}) error {

@@ -73,7 +73,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.BoolVar(&ignoreCert, "ignore-cert", false, "Disable TLS certificate verification")
 	flags.StringVar(&caFile, "ca-file", "", "Path to a custom CA certificate bundle")
 	flags.StringVar(&networkViewsStr, "network-views", "", "Comma-separated network views to query (default: all)")
-	flags.StringVar(&dnsViewsStr, "dns-views", "", "Comma-separated DNS views to query (default: default)")
+	flags.StringVar(&dnsViewsStr, "dns-views", "", "Comma-separated DNS views to query (default: all)")
 	flags.StringVar(&networksStr, "networks", "", "Comma-separated CIDRs to scope network, range, IPv4, DHCP, and IPAM collectors")
 	flags.StringVar(&zonesStr, "zones", "", "Comma-separated DNS zones to scope allrecords and zones collectors")
 	flags.StringVar(&upgradeTypesStr, "upgrade-status-types", "", "Comma-separated upgrade status types")

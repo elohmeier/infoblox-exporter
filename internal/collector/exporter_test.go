@@ -252,6 +252,7 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 	cfg.NetworkViews = []string{"default"}
 	cfg.DNSViews = []string{"default"}
 	cfg.Networks = []string{"10.1.216.0/24"}
+	cfg.Zones = []string{"example.test"}
 
 	client, err := wapi.NewClient(wapi.Config{
 		BaseURL:  server.URL + "/wapi/v2.13.7",

@@ -91,7 +91,7 @@ func TestEnvFallbacksAndDefaults(t *testing.T) {
 
 func TestConfigHelpers(t *testing.T) {
 	defaults := Default()
-	if defaults.Timeout == 0 || defaults.PageSize != 1000 || len(defaults.DNSViews) != 1 || len(defaults.UpgradeStatusTypes) != 4 {
+	if defaults.Timeout == 0 || defaults.PageSize != 1000 || len(defaults.DNSViews) != 0 || len(defaults.UpgradeStatusTypes) != 4 {
 		t.Fatalf("unexpected defaults: %#v", defaults)
 	}
 
