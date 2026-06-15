@@ -452,10 +452,37 @@ func TestCollectorScopedBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("ipam statistics omits unavailable conflict count field", func(t *testing.T) {
+	t.Run("dhcp statistics skips timed out objects", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Timeout = 60 * time.Millisecond
+		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wapi/v2.13.7/network":
+				writeResult(t, w, []map[string]interface{}{{"_ref": "network/slow", "network": "10.0.0.0/24"}})
+			case "/wapi/v2.13.7/range":
+				writeResult(t, w, []map[string]interface{}{{"_ref": "range/fast", "network": "10.0.0.0/24"}})
+			case "/wapi/v2.13.7/dhcp:statistics":
+				if r.URL.Query().Get("statistics_object") == "network/slow" {
+					time.Sleep(90 * time.Millisecond)
+				}
+				writeObject(t, w, map[string]interface{}{})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		})
+		defer cleanup()
+		if err := exporter.collectDHCPStatistics(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("ipam statistics omits fields unavailable on containers", func(t *testing.T) {
 		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
 			if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "conflict_count") {
 				t.Fatalf("ipam statistics requested unavailable conflict_count field: %s", fields)
+			}
+			if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "unmanaged_count") {
+				t.Fatalf("ipam statistics requested unavailable unmanaged_count field: %s", fields)
 			}
 			writeObject(t, w, map[string]interface{}{})
 		})

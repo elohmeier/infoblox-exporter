@@ -2,8 +2,10 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"sort"
 	"strconv"
@@ -644,8 +646,14 @@ func (e *Exporter) collectDHCPStatistics(ctx context.Context, ch chan<- promethe
 	for _, object := range objects {
 		query := cloneValues(params)
 		query.Set("statistics_object", object.ref)
-		stats, err := wapi.FetchAllUnpaged[model.DHCPStatistics](ctx, e.client, "dhcp:statistics", query)
+		objectCtx, cancel := context.WithTimeout(ctx, e.dhcpStatisticsObjectTimeout())
+		stats, err := wapi.FetchAllUnpaged[model.DHCPStatistics](objectCtx, e.client, "dhcp:statistics", query)
+		cancel()
 		if err != nil {
+			if ctx.Err() == nil && isTimeoutError(err) {
+				e.logger.Debug("dhcp statistics object timed out", "object_type", object.kind, "object", object.name, "ref", object.ref, "err", err)
+				continue
+			}
 			return err
 		}
 		for _, stat := range stats {
@@ -661,6 +669,20 @@ func (e *Exporter) collectDHCPStatistics(ctx context.Context, ch chan<- promethe
 		}
 	}
 	return nil
+}
+
+func (e *Exporter) dhcpStatisticsObjectTimeout() time.Duration {
+	if e.cfg.Timeout <= 0 {
+		return 5 * time.Second
+	}
+	timeout := e.cfg.Timeout / 6
+	if timeout <= 0 {
+		return e.cfg.Timeout
+	}
+	if timeout > 5*time.Second {
+		return 5 * time.Second
+	}
+	return timeout
 }
 
 type statisticsObject struct {
@@ -767,7 +789,7 @@ func (e *Exporter) collectIPAMStatistics(ctx context.Context, ch chan<- promethe
 }
 
 func (e *Exporter) collectIPAMStatisticsForQuery(ctx context.Context, ch chan<- prometheus.Metric, view string, network string) error {
-	params := fields("network", "network_view", "cidr", "unmanaged_count", "utilization", "utilization_update")
+	params := fields("network", "network_view", "cidr", "utilization", "utilization_update")
 	if view != "" {
 		params.Set("network_view", view)
 	}
@@ -974,6 +996,14 @@ func utilizationRatio(value uint64) float64 {
 		return float64(value) / 100
 	}
 	return float64(value) / 100000
+}
+
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func emitCounts(ch chan<- prometheus.Metric, desc *prometheus.Desc, counts map[string]int, network string, networkView string) {
