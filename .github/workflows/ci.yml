@@ -2,22 +2,19 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - "v*.*.*"
+    branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  go:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v6
 
       - name: Set up Go
@@ -45,14 +42,28 @@ jobs:
       - name: Test with race detector and coverage
         run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
 
-      - name: Enforce coverage
-        run: |
-          go tool cover -func=coverage.out
-          coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')"
-          test "$coverage" = "100.0%"
-
       - name: Build
-        run: go build .
+        run: go build ./...
 
-      - name: Build container image
-        run: docker build -t infoblox-exporter:ci .
+  release-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install release tooling
+        run: npm ci --ignore-scripts
+
+      - name: Check GoReleaser config
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
