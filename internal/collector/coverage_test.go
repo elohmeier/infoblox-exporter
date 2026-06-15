@@ -61,6 +61,22 @@ func TestCollectIPv4Unconfigured(t *testing.T) {
 	}
 }
 
+func TestRunCollectorUsesIndependentContext(t *testing.T) {
+	exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	})
+	defer cleanup()
+
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := exporter.runCollector(parent, metricBuffer(), "test", func(ctx context.Context, _ chan<- prometheus.Metric) error {
+		return ctx.Err()
+	}); got != 0 {
+		t.Fatalf("collector should not inherit canceled scrape context")
+	}
+}
+
 func TestCollectorPrimaryErrorPaths(t *testing.T) {
 	tests := []struct {
 		name string
@@ -356,14 +372,20 @@ func TestCollectorScopedBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("gridwide license omits unsupported kind field", func(t *testing.T) {
+	t.Run("license omits unsupported fields", func(t *testing.T) {
 		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/wapi/v2.13.7/member:license":
+				if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "hwid") {
+					t.Fatalf("member license requested unsupported hwid field: %s", fields)
+				}
 				writeResult(t, w, []map[string]interface{}{})
 			case "/wapi/v2.13.7/license:gridwide":
 				if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "kind") {
 					t.Fatalf("gridwide license requested unsupported kind field: %s", fields)
+				}
+				if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "hwid") {
+					t.Fatalf("gridwide license requested unsupported hwid field: %s", fields)
 				}
 				writeResult(t, w, []map[string]interface{}{})
 			default:

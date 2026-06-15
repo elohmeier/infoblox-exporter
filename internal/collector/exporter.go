@@ -245,7 +245,10 @@ func (e *Exporter) enabled(name string) bool {
 	return !e.cfg.IsModuleDisabled(name)
 }
 
-func (e *Exporter) runCollector(ctx context.Context, ch chan<- prometheus.Metric, name string, fn func(context.Context, chan<- prometheus.Metric) error) int {
+func (e *Exporter) runCollector(_ context.Context, ch chan<- prometheus.Metric, name string, fn func(context.Context, chan<- prometheus.Metric) error) int {
+	ctx, cancel := context.WithTimeout(context.Background(), e.cfg.Timeout)
+	defer cancel()
+
 	if err := fn(ctx, ch); err != nil {
 		e.logger.Warn("collector failed", "collector", name, "err", err)
 		ch <- prometheus.MustNewConstMetric(e.collectorUp, prometheus.GaugeValue, 0, name)
@@ -542,7 +545,7 @@ func (e *Exporter) collectCapacity(ctx context.Context, ch chan<- prometheus.Met
 }
 
 func (e *Exporter) collectLicenses(ctx context.Context, ch chan<- prometheus.Metric) error {
-	memberParams := fields("type", "kind", "limit", "limit_context", "expiration_status", "expiry_date", "hwid")
+	memberParams := fields("type", "kind", "limit", "limit_context", "expiration_status", "expiry_date")
 	memberLicenses, err := wapi.FetchAll[model.License](ctx, e.client, "member:license", memberParams)
 	if err != nil {
 		return err
@@ -552,7 +555,7 @@ func (e *Exporter) collectLicenses(ctx context.Context, ch chan<- prometheus.Met
 		e.emitLicense(ch, license)
 	}
 
-	gridParams := fields("type", "limit", "limit_context", "expiration_status", "expiry_date", "hwid")
+	gridParams := fields("type", "limit", "limit_context", "expiration_status", "expiry_date")
 	gridLicenses, err := wapi.FetchAll[model.License](ctx, e.client, "license:gridwide", gridParams)
 	if err != nil {
 		return err
