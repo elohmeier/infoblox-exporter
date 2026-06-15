@@ -514,12 +514,21 @@ func (e *Exporter) collectCapacity(ctx context.Context, ch chan<- prometheus.Met
 	if err != nil {
 		return err
 	}
+	memberNames := make([]string, 0, len(members))
 	for _, member := range members {
-		if member.HostName == "" {
+		if member.HostName != "" {
+			memberNames = append(memberNames, member.HostName)
+		}
+	}
+	if len(memberNames) == 0 {
+		memberNames = append(memberNames, e.client.Hostname())
+	}
+	for _, memberName := range memberNames {
+		if memberName == "" {
 			continue
 		}
 		query := cloneValues(params)
-		query.Set("name", member.HostName)
+		query.Set("name", memberName)
 		reports, err := wapi.FetchAll[model.CapacityReport](ctx, e.client, "capacityreport", query)
 		if err != nil {
 			return err
@@ -532,7 +541,7 @@ func (e *Exporter) collectCapacity(ctx context.Context, ch chan<- prometheus.Met
 			emitUint(ch, e.capacityMax, report.MaxCapacity, report.Name, report.Role, report.HardwareType)
 			emitUint(ch, e.capacityObjects, report.TotalObjects, report.Name, report.Role, report.HardwareType)
 			for _, count := range report.ObjectCounts {
-				objectType := firstString(count, "type", "object_type", "name")
+				objectType := firstString(count, "type", "type_name", "object_type", "name")
 				value, ok := firstNumber(count, "count", "total", "value")
 				if objectType == "" || !ok {
 					continue

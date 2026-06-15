@@ -125,6 +125,10 @@ func NewClient(cfg Config) (*Client, error) {
 	}, nil
 }
 
+func (c *Client) Hostname() string {
+	return c.baseURL.Hostname()
+}
+
 func FetchAll[T any](ctx context.Context, c *Client, object string, params url.Values) ([]T, error) {
 	raw, err := c.FetchAllRaw(ctx, object, params)
 	if err != nil {

@@ -372,6 +372,36 @@ func TestCollectorScopedBranches(t *testing.T) {
 		}
 	})
 
+	t.Run("capacity falls back to wapi hostname", func(t *testing.T) {
+		seenCapacity := false
+		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wapi/v2.13.7/member":
+				writeResult(t, w, []map[string]interface{}{})
+			case "/wapi/v2.13.7/capacityreport":
+				seenCapacity = true
+				if got := r.URL.Query().Get("name"); got != "127.0.0.1" {
+					t.Fatalf("capacityreport missing fallback host name: %q", got)
+				}
+				writeResult(t, w, []map[string]interface{}{
+					{
+						"name":          "127.0.0.1",
+						"object_counts": []map[string]interface{}{{"type_name": "Grid Member", "count": 37}},
+					},
+				})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		})
+		defer cleanup()
+		if err := exporter.collectCapacity(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+		if !seenCapacity {
+			t.Fatalf("capacityreport was not queried")
+		}
+	})
+
 	t.Run("license omits unsupported fields", func(t *testing.T) {
 		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
