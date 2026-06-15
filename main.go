@@ -57,6 +57,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		bindPort           int
 		pageSize           int
 		timeout            time.Duration
+		refreshInterval    time.Duration
+		refreshTimeout     time.Duration
+		maxStale           time.Duration
 		ignoreCert         bool
 		showVersion        bool
 		debug              bool
@@ -70,6 +73,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.IntVar(&bindPort, "bind-port", 9717, "Port to bind the exporter endpoint to")
 	flags.IntVar(&pageSize, "page-size", 0, "WAPI page size (default: 1000)")
 	flags.DurationVar(&timeout, "timeout", 0, "WAPI request timeout (default: 30s)")
+	flags.DurationVar(&refreshInterval, "refresh-interval", 0, "Background cache refresh interval (default: 5m)")
+	flags.DurationVar(&refreshTimeout, "refresh-timeout", 0, "Background cache refresh timeout (default: 2m)")
+	flags.DurationVar(&maxStale, "max-stale", 0, "Maximum cache age before readiness fails (default: 15m)")
 	flags.BoolVar(&ignoreCert, "ignore-cert", false, "Disable TLS certificate verification")
 	flags.StringVar(&caFile, "ca-file", "", "Path to a custom CA certificate bundle")
 	flags.StringVar(&networkViewsStr, "network-views", "", "Comma-separated network views to query (default: all)")
@@ -135,6 +141,21 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		logger.Error("invalid timeout", "err", err)
 		return 1
 	}
+	cfg.RefreshInterval, err = chooseDuration(refreshInterval, config.GetRefreshInterval(), cfg.RefreshInterval, "refresh-interval")
+	if err != nil {
+		logger.Error("invalid refresh interval", "err", err)
+		return 1
+	}
+	cfg.RefreshTimeout, err = chooseDuration(refreshTimeout, config.GetRefreshTimeout(), cfg.RefreshTimeout, "refresh-timeout")
+	if err != nil {
+		logger.Error("invalid refresh timeout", "err", err)
+		return 1
+	}
+	cfg.MaxStale, err = chooseDuration(maxStale, config.GetMaxStale(), cfg.MaxStale, "max-stale")
+	if err != nil {
+		logger.Error("invalid max stale", "err", err)
+		return 1
+	}
 
 	if caFile == "" {
 		caFile = config.GetCAFile()
@@ -182,13 +203,19 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(cfg.Labels) > 0 {
 		registerer = prometheus.WrapRegistererWith(cfg.Labels, registerer)
 	}
+	exporter := newExporter(cfg, client, logger)
 	registerer.MustRegister(wapiMetrics.Collectors()...)
-	registerer.MustRegister(newExporter(cfg, client, logger))
+	registerer.MustRegister(exporter)
+
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+	exporter.Start(appCtx)
+	defer exporter.Stop()
 
 	listenAddr := ":" + strconv.Itoa(bindPort)
 	server := &http.Server{
 		Addr:              listenAddr,
-		Handler:           newMux(registry),
+		Handler:           newMux(registry, exporter),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	serve := listenAndServe
@@ -218,6 +245,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	appCancel()
+	exporter.Stop()
 	if err := shutdown(server, ctx); err != nil {
 		logger.Error("server shutdown failed", "err", err)
 		return 1
@@ -225,13 +254,17 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func newMux(registry *prometheus.Registry) *http.ServeMux {
+func newMux(registry *prometheus.Registry, exporter ...*collector.Exporter) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
+	if len(exporter) > 0 && exporter[0] != nil {
+		mux.HandleFunc("/readyz", exporter[0].ReadyHandler)
+		mux.HandleFunc("/debug/cache", exporter[0].DebugCacheHandler)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(app + " - /metrics for Prometheus metrics"))

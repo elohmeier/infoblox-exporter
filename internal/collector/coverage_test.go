@@ -33,6 +33,9 @@ func TestCollectReportsFailure(t *testing.T) {
 
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(exporter)
+	if err := exporter.RefreshOnce(context.Background()); err == nil {
+		t.Fatalf("expected refresh failure")
+	}
 	families, err := registry.Gather()
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +64,7 @@ func TestCollectIPv4Unconfigured(t *testing.T) {
 	}
 }
 
-func TestRunCollectorUsesIndependentContext(t *testing.T) {
+func TestRunCollectorUsesRefreshContext(t *testing.T) {
 	exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unexpected request", http.StatusInternalServerError)
 	})
@@ -70,10 +73,10 @@ func TestRunCollectorUsesIndependentContext(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if got := exporter.runCollector(parent, metricBuffer(), "test", func(ctx context.Context, _ chan<- prometheus.Metric) error {
+	if got := exporter.runCollector(parent, "test", func(ctx context.Context, _ chan<- prometheus.Metric) error {
 		return ctx.Err()
-	}); got != 0 {
-		t.Fatalf("collector should not inherit canceled scrape context")
+	}); got != 1 {
+		t.Fatalf("collector should inherit canceled refresh context")
 	}
 }
 
@@ -627,11 +630,11 @@ func TestCollectorHelpers(t *testing.T) {
 		t.Fatalf("unexpected valueOr result")
 	}
 
-	statusDesc := prometheus.NewDesc("test_status", "test", []string{"a", "b"}, nil)
-	emitStatus(metricBuffer(), statusDesc, "", "b")
+	statusGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "test_status", Help: "test"}, []string{"a", "b"})
+	emitStatus(statusGauge, "", "b")
 
-	recordDesc := prometheus.NewDesc("test_record", "test", []string{"a", "b", "c"}, nil)
-	emitRecordCounts(metricBuffer(), recordDesc, map[string]int{"single": 1})
+	recordGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "test_record", Help: "test"}, []string{"a", "b", "c"})
+	emitRecordCounts(recordGauge, map[string]int{"single": 1})
 
 	if number, ok := firstNumber(map[string]interface{}{"a": "bad", "b": float64(2)}, "missing", "a", "b"); !ok || number != 2 {
 		t.Fatalf("unexpected first number: %f %t", number, ok)

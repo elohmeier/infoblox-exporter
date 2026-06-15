@@ -11,6 +11,9 @@ type Config struct {
 	Labels             map[string]string
 	DisabledModules    []string
 	Timeout            time.Duration
+	RefreshInterval    time.Duration
+	RefreshTimeout     time.Duration
+	MaxStale           time.Duration
 	PageSize           int
 	NetworkViews       []string
 	DNSViews           []string
@@ -21,9 +24,12 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		Labels:   map[string]string{},
-		Timeout:  30 * time.Second,
-		PageSize: 1000,
+		Labels:          map[string]string{},
+		Timeout:         30 * time.Second,
+		RefreshInterval: 5 * time.Minute,
+		RefreshTimeout:  2 * time.Minute,
+		MaxStale:        15 * time.Minute,
+		PageSize:        1000,
 		UpgradeStatusTypes: []string{
 			"GRID",
 			"GROUP",
@@ -81,6 +87,18 @@ func GetPageSize() string {
 
 func GetTimeout() string {
 	return firstEnv("INFOBLOX_TIMEOUT", "INFOBLOX_EXPORTER_TIMEOUT")
+}
+
+func GetRefreshInterval() string {
+	return os.Getenv("INFOBLOX_REFRESH_INTERVAL")
+}
+
+func GetRefreshTimeout() string {
+	return os.Getenv("INFOBLOX_REFRESH_TIMEOUT")
+}
+
+func GetMaxStale() string {
+	return os.Getenv("INFOBLOX_MAX_STALE")
 }
 
 func GetNetworkViews() string {

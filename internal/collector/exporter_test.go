@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/elohmeier/infoblox-exporter/internal/config"
 	"github.com/elohmeier/infoblox-exporter/internal/wapi"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 )
 
 func TestExporterCollectsCoreMetrics(t *testing.T) {
@@ -265,7 +267,11 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 	}
 
 	registry := prometheus.NewRegistry()
-	registry.MustRegister(New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil))))
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry.MustRegister(exporter)
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	families, err := registry.Gather()
 	if err != nil {
@@ -347,13 +353,204 @@ func TestExporterHonorsDisabledModules(t *testing.T) {
 	}
 
 	registry := prometheus.NewRegistry()
-	registry.MustRegister(New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil))))
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry.MustRegister(exporter)
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := registry.Gather(); err != nil {
 		t.Fatal(err)
 	}
 	if requested {
 		t.Fatalf("disabled collectors should not call WAPI")
 	}
+}
+
+func TestExporterMetricsReadCacheOnly(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/wapi/v2.13.7/network" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		writeResult(t, w, []map[string]interface{}{
+			{"network": "10.0.0.0/24", "network_view": "default"},
+		})
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DisabledModules = allModulesExcept("network")
+	client, err := wapi.NewClient(wapi.Config{
+		BaseURL:  server.URL + "/wapi/v2.13.7",
+		Username: "user",
+		Password: "pass",
+		PageSize: cfg.PageSize,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("refresh requests = %d, want 1", requests)
+	}
+	if _, err := registry.Gather(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Gather(); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("gather should not call WAPI, requests = %d", requests)
+	}
+}
+
+func TestExporterKeepsCacheAfterFailedRefresh(t *testing.T) {
+	fail := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wapi/v2.13.7/network" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if fail {
+			http.Error(w, "failed", http.StatusInternalServerError)
+			return
+		}
+		writeResult(t, w, []map[string]interface{}{
+			{"network": "10.0.0.0/24", "network_view": "default"},
+		})
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DisabledModules = allModulesExcept("network")
+	client, err := wapi.NewClient(wapi.Config{
+		BaseURL:  server.URL + "/wapi/v2.13.7",
+		Username: "user",
+		Password: "pass",
+		PageSize: cfg.PageSize,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fail = true
+	if err := exporter.RefreshOnce(context.Background()); err == nil {
+		t.Fatalf("expected refresh failure")
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := metricValue(t, families, "infoblox_network_info"); value != 1 {
+		t.Fatalf("cached network metric = %f, want 1", value)
+	}
+	if value := metricValue(t, families, "infoblox_up"); value != 0 {
+		t.Fatalf("failed refresh should set infoblox_up = 0, got %f", value)
+	}
+}
+
+func TestExporterReplacesCacheAfterSuccessfulRefresh(t *testing.T) {
+	empty := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wapi/v2.13.7/network" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if empty {
+			writeResult(t, w, []map[string]interface{}{})
+			return
+		}
+		writeResult(t, w, []map[string]interface{}{
+			{"network": "10.0.0.0/24", "network_view": "default"},
+		})
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DisabledModules = allModulesExcept("network")
+	client, err := wapi.NewClient(wapi.Config{
+		BaseURL:  server.URL + "/wapi/v2.13.7",
+		Username: "user",
+		Password: "pass",
+		PageSize: cfg.PageSize,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMetric(families, "infoblox_network_info") {
+		t.Fatalf("expected cached network metric")
+	}
+
+	empty = true
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	families, err = registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasMetric(families, "infoblox_network_info") {
+		t.Fatalf("successful empty refresh should replace previous network metric")
+	}
+}
+
+func allModulesExcept(keep string) []string {
+	modules := []string{
+		"network",
+		"range",
+		"ipv4address",
+		"member",
+		"restartservicestatus",
+		"servicerestart",
+		"capacity",
+		"license",
+		"upgradestatus",
+		"dhcpstatistics",
+		"ipamstatistics",
+		"dhcpfailover",
+		"allrecords",
+		"zones",
+		"dtc",
+		"threatprotection",
+	}
+	out := make([]string, 0, len(modules)-1)
+	for _, module := range modules {
+		if module != keep {
+			out = append(out, module)
+		}
+	}
+	return out
+}
+
+func hasMetric(families []*dto.MetricFamily, name string) bool {
+	for _, family := range families {
+		if family.GetName() == name && len(family.Metric) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func writeResult(t *testing.T, w http.ResponseWriter, result interface{}) {

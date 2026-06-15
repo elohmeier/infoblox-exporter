@@ -9,6 +9,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +21,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elohmeier/infoblox-exporter/internal/collector"
+	"github.com/elohmeier/infoblox-exporter/internal/config"
+	"github.com/elohmeier/infoblox-exporter/internal/wapi"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -245,6 +250,42 @@ func TestNewMux(t *testing.T) {
 	}
 }
 
+func TestNewMuxWithCacheEndpoints(t *testing.T) {
+	cfg := config.Default()
+	cfg.DisabledModules = []string{
+		"network", "range", "ipv4address", "member", "restartservicestatus", "servicerestart",
+		"capacity", "license", "upgradestatus", "dhcpstatistics", "ipamstatistics",
+		"dhcpfailover", "allrecords", "zones", "dtc", "threatprotection",
+	}
+	client, err := wapi.NewClient(wapi.Config{
+		BaseURL:  "http://127.0.0.1/wapi/v2.13.7",
+		Username: "user",
+		Password: "pass",
+		PageSize: cfg.PageSize,
+		Timeout:  cfg.Timeout,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := collector.New(cfg, client, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	mux := newMux(prometheus.NewRegistry(), exporter)
+
+	ready := httptest.NewRecorder()
+	mux.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if ready.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz returned %d, want 503 before refresh", ready.Code)
+	}
+
+	debug := httptest.NewRecorder()
+	mux.ServeHTTP(debug, httptest.NewRequest(http.MethodGet, "/debug/cache", nil))
+	if debug.Code != http.StatusOK {
+		t.Fatalf("debug cache returned %d", debug.Code)
+	}
+	if got := debug.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("debug cache content type = %q", got)
+	}
+}
+
 func TestChooseCSV(t *testing.T) {
 	defaultValue := []string{"default"}
 
@@ -326,6 +367,9 @@ func clearInfobloxEnv(t *testing.T) {
 		"INFOBLOX_EXPORTER_PAGE_SIZE",
 		"INFOBLOX_TIMEOUT",
 		"INFOBLOX_EXPORTER_TIMEOUT",
+		"INFOBLOX_REFRESH_INTERVAL",
+		"INFOBLOX_REFRESH_TIMEOUT",
+		"INFOBLOX_MAX_STALE",
 		"INFOBLOX_NETWORK_VIEWS",
 		"INFOBLOX_DNS_VIEWS",
 		"INFOBLOX_NETWORKS",

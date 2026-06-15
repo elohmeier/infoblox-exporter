@@ -30,6 +30,9 @@ func TestEnvAccessors(t *testing.T) {
 	t.Setenv("INFOBLOX_DISABLED_MODULES", "dtc")
 	t.Setenv("INFOBLOX_PAGE_SIZE", "500")
 	t.Setenv("INFOBLOX_TIMEOUT", "10s")
+	t.Setenv("INFOBLOX_REFRESH_INTERVAL", "5m")
+	t.Setenv("INFOBLOX_REFRESH_TIMEOUT", "2m")
+	t.Setenv("INFOBLOX_MAX_STALE", "15m")
 	t.Setenv("INFOBLOX_NETWORK_VIEWS", "default")
 	t.Setenv("INFOBLOX_DNS_VIEWS", "default")
 	t.Setenv("INFOBLOX_NETWORKS", "10.1.216.0/24")
@@ -54,6 +57,9 @@ func TestEnvAccessors(t *testing.T) {
 	}
 	if GetLabels() != "env=test" || GetDisabledModules() != "dtc" || GetPageSize() != "500" || GetTimeout() != "10s" {
 		t.Fatalf("unexpected env values")
+	}
+	if GetRefreshInterval() != "5m" || GetRefreshTimeout() != "2m" || GetMaxStale() != "15m" {
+		t.Fatalf("unexpected cache env values")
 	}
 	if GetNetworkViews() != "default" || GetDNSViews() != "default" || GetZones() != "example.test" || GetUpgradeStatusTypes() != "GRID" {
 		t.Fatalf("unexpected scope env values")
@@ -91,7 +97,7 @@ func TestEnvFallbacksAndDefaults(t *testing.T) {
 
 func TestConfigHelpers(t *testing.T) {
 	defaults := Default()
-	if defaults.Timeout == 0 || defaults.PageSize != 1000 || len(defaults.DNSViews) != 0 || len(defaults.UpgradeStatusTypes) != 4 {
+	if defaults.Timeout == 0 || defaults.RefreshInterval == 0 || defaults.RefreshTimeout == 0 || defaults.MaxStale == 0 || defaults.PageSize != 1000 || len(defaults.DNSViews) != 0 || len(defaults.UpgradeStatusTypes) != 4 {
 		t.Fatalf("unexpected defaults: %#v", defaults)
 	}
 

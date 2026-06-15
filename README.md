@@ -8,7 +8,7 @@
 
 Prometheus exporter for selected Infoblox NIOS WAPI inventory and utilization data.
 
-The exporter uses read-only WAPI requests with paging enabled. IPv4 address data is aggregated by network/view/status/type/usage instead of exposing per-IP, hostname, or MAC labels. DNS `allrecords` are exported both as aggregate counts and per-record info/TTL metrics.
+The exporter uses read-only WAPI requests with paging enabled. A background scheduler refreshes data into an in-process cache, and Prometheus scrapes read that cache only. IPv4 address data is aggregated by network/view/status/type/usage instead of exposing per-IP, hostname, or MAC labels. DNS `allrecords` are exported both as aggregate counts and per-record info/TTL metrics.
 
 ## Quick Start
 
@@ -18,7 +18,7 @@ export INFOBLOX_PASSWORD='<password>'
 go run . -url https://gm.example.com/wapi/v2.13.7 -networks 10.1.216.0/24
 ```
 
-The exporter listens on `:9717` and exposes `/metrics` and `/health`.
+The exporter listens on `:9717` and exposes `/metrics`, `/health`, `/readyz`, and `/debug/cache`.
 
 ```sh
 curl http://localhost:9717/metrics
@@ -30,6 +30,9 @@ Core metrics include:
 
 - `infoblox_up`
 - `infoblox_scrape_duration_seconds`
+- `infoblox_refresh_duration_seconds`
+- `infoblox_cache_age_seconds`
+- `infoblox_cache_stale`
 - `infoblox_wapi_requests_total{object,code}`
 - `infoblox_wapi_request_duration_seconds{object}`
 - `infoblox_network_utilization_ratio{network,network_view}`
@@ -63,9 +66,12 @@ Flags follow the same style as the neighboring NetScaler exporter:
 | `-url` | `INFOBLOX_URL` | required | Infoblox WAPI base URL, for example `https://gm.example.com/wapi/v2.13.7`. `INFOBLOX_WAPI_URL` and `INFOBLOX_BASE_URL` are also accepted. |
 | `-labels` | `INFOBLOX_LABELS` | none | Comma-separated Prometheus const labels, for example `env=prod,dc=de`. CLI labels override env labels with the same key. |
 | `-disabled-modules` | `INFOBLOX_DISABLED_MODULES` | none | Comma-separated collectors to disable. |
-| `-bind-port` | none | `9717` | HTTP port for `/metrics` and `/health`. |
+| `-bind-port` | none | `9717` | HTTP port for `/metrics`, `/health`, `/readyz`, and `/debug/cache`. |
 | `-page-size` | `INFOBLOX_PAGE_SIZE` | `1000` | WAPI paging size. `INFOBLOX_EXPORTER_PAGE_SIZE` is also accepted. |
 | `-timeout` | `INFOBLOX_TIMEOUT` | `30s` | WAPI request timeout. `INFOBLOX_EXPORTER_TIMEOUT` is also accepted. |
+| `-refresh-interval` | `INFOBLOX_REFRESH_INTERVAL` | `5m` | Background cache refresh interval. |
+| `-refresh-timeout` | `INFOBLOX_REFRESH_TIMEOUT` | `2m` | Timeout for one full background refresh. |
+| `-max-stale` | `INFOBLOX_MAX_STALE` | `15m` | Maximum cache age before `/readyz` reports not ready. |
 | `-ignore-cert` | `INFOBLOX_IGNORE_CERT` | `false` | Disable TLS certificate verification. `INFOBLOX_EXPORTER_INSECURE_SKIP_VERIFY` is also accepted. |
 | `-ca-file` | `INFOBLOX_CA_FILE` | none | Custom CA bundle path. |
 | `-network-views` | `INFOBLOX_NETWORK_VIEWS` | all | Comma-separated network views for IPAM/DHCP collectors. |
@@ -75,6 +81,8 @@ Flags follow the same style as the neighboring NetScaler exporter:
 | `-upgrade-status-types` | `INFOBLOX_UPGRADE_STATUS_TYPES` | `GRID,GROUP,VNODE,PNODE` | Upgrade status object types to query. |
 
 Credentials are read from `INFOBLOX_USERNAME` and `INFOBLOX_PASSWORD`.
+
+`/metrics` returns HTTP 200 even before the first successful refresh, but it only exposes exporter/cache self-metrics until cached Infoblox data exists. Use `/readyz` for readiness; it returns HTTP 503 until the cache has been refreshed successfully and is not stale.
 
 Disable collectors by these names: `network`, `range`, `ipv4address`, `member`, `restartservicestatus`, `servicerestart`, `capacity`, `license`, `upgradestatus`, `dhcpstatistics`, `ipamstatistics`, `dhcpfailover`, `allrecords`, `zones`, `dtc`, `threatprotection`.
 
