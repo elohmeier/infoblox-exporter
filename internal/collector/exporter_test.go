@@ -25,8 +25,8 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 					"_ref":                    "network/ref:10.1.216.0/24/default",
 					"network":                 "10.1.216.0/24",
 					"network_view":            "default",
-					"utilization":             50000,
-					"dhcp_utilization":        25000,
+					"utilization":             500,
+					"dhcp_utilization":        250,
 					"dhcp_utilization_status": "NORMAL",
 					"utilization_update":      1_700_000_000,
 				},
@@ -166,7 +166,7 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 			})
 		case "/wapi/v2.13.7/dhcp:statistics":
 			writeObject(t, w, map[string]interface{}{
-				"dhcp_utilization":        12000,
+				"dhcp_utilization":        120,
 				"dhcp_utilization_status": "NORMAL",
 				"dynamic_hosts":           4,
 				"static_hosts":            2,
@@ -179,7 +179,7 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 				"cidr":               24,
 				"conflict_count":     1,
 				"unmanaged_count":    1,
-				"utilization":        50000,
+				"utilization":        500,
 				"utilization_update": 1_700_000_003,
 			})
 		case "/wapi/v2.13.7/dhcpfailover":

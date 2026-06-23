@@ -669,6 +669,31 @@ func TestCollectorHelpers(t *testing.T) {
 	if !contains([]string{"a", "b"}, "b") || contains([]string{"a"}, "b") {
 		t.Fatalf("unexpected contains result")
 	}
+	for _, tt := range []struct {
+		value uint64
+		want  float64
+	}{
+		{968, 0.968},
+		{1000, 1},
+		{500, 0.5},
+	} {
+		if got := ipamUtilizationRatio(tt.value); got != tt.want {
+			t.Fatalf("ipamUtilizationRatio(%d) = %f, want %f", tt.value, got, tt.want)
+		}
+	}
+	for _, tt := range []struct {
+		value uint64
+		want  float64
+	}{
+		{23, 0.023},
+		{100, 0.1},
+		{1000, 1},
+		{250, 0.25},
+	} {
+		if got := dhcpUtilizationRatio(tt.value); got != tt.want {
+			t.Fatalf("dhcpUtilizationRatio(%d) = %f, want %f", tt.value, got, tt.want)
+		}
+	}
 	if service, status := memberServiceStatus(map[string]interface{}{"name": stringer("DNS"), "enabled": false}); service != "DNS" || status != "enabled_false" {
 		t.Fatalf("unexpected member service status: %s/%s", service, status)
 	}

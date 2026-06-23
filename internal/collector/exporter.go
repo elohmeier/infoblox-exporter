@@ -633,10 +633,10 @@ func (e *Exporter) collectNetworksForQuery(ctx context.Context, ch chan<- promet
 		networkView := valueOr(item.NetworkView, view, "default")
 		e.networkInfo.WithLabelValues(item.Network, networkView, item.Comment, boolLabel(item.Disable)).Set(1)
 		if item.Utilization.Valid {
-			e.networkUtilization.WithLabelValues(item.Network, networkView).Set(utilizationRatio(item.Utilization.Value))
+			e.networkUtilization.WithLabelValues(item.Network, networkView).Set(ipamUtilizationRatio(item.Utilization.Value))
 		}
 		if item.DHCPUtilization.Valid {
-			e.networkDHCPUtil.WithLabelValues(item.Network, networkView).Set(utilizationRatio(item.DHCPUtilization.Value))
+			e.networkDHCPUtil.WithLabelValues(item.Network, networkView).Set(dhcpUtilizationRatio(item.DHCPUtilization.Value))
 		}
 		if item.UtilizationUpdate.Valid {
 			e.networkUtilUpdated.WithLabelValues(item.Network, networkView).Set(float64(item.UtilizationUpdate.Value))
@@ -693,7 +693,7 @@ func (e *Exporter) collectRangesForQuery(ctx context.Context, ch chan<- promethe
 			item.FailoverAssociation,
 		).Set(1)
 		if item.DHCPUtilization.Valid {
-			e.rangeDHCPUtil.WithLabelValues(item.Network, networkView, item.StartAddr, item.EndAddr).Set(utilizationRatio(item.DHCPUtilization.Value))
+			e.rangeDHCPUtil.WithLabelValues(item.Network, networkView, item.StartAddr, item.EndAddr).Set(dhcpUtilizationRatio(item.DHCPUtilization.Value))
 		}
 		if item.DHCPUtilizationStatus != "" {
 			e.rangeDHCPStatus.WithLabelValues(item.Network, networkView, item.StartAddr, item.EndAddr, item.DHCPUtilizationStatus).Set(1)
@@ -984,7 +984,7 @@ func (e *Exporter) collectDHCPStatistics(ctx context.Context, ch chan<- promethe
 		}
 		for _, stat := range stats {
 			if stat.DHCPUtilization.Valid {
-				e.dhcpStatsUtil.WithLabelValues(object.kind, object.name).Set(utilizationRatio(stat.DHCPUtilization.Value))
+				e.dhcpStatsUtil.WithLabelValues(object.kind, object.name).Set(dhcpUtilizationRatio(stat.DHCPUtilization.Value))
 			}
 			if stat.DHCPUtilizationStatus != "" {
 				e.dhcpStatsStatus.WithLabelValues(object.kind, object.name, stat.DHCPUtilizationStatus).Set(1)
@@ -1129,7 +1129,7 @@ func (e *Exporter) collectIPAMStatisticsForQuery(ctx context.Context, ch chan<- 
 	for _, stat := range stats {
 		networkView := valueOr(stat.NetworkView, view, "default")
 		if stat.Utilization.Valid {
-			e.ipamStatsUtil.WithLabelValues(stat.Network, networkView).Set(utilizationRatio(stat.Utilization.Value))
+			e.ipamStatsUtil.WithLabelValues(stat.Network, networkView).Set(ipamUtilizationRatio(stat.Utilization.Value))
 		}
 		emitUint(e.ipamStatsCount, stat.ConflictCount, stat.Network, networkView, "conflict")
 		emitUint(e.ipamStatsCount, stat.UnmanagedCount, stat.Network, networkView, "unmanaged")
@@ -1319,6 +1319,14 @@ func utilizationRatio(value uint64) float64 {
 		return float64(value) / 100
 	}
 	return float64(value) / 100000
+}
+
+func dhcpUtilizationRatio(value uint64) float64 {
+	return float64(value) / 1000
+}
+
+func ipamUtilizationRatio(value uint64) float64 {
+	return float64(value) / 1000
 }
 
 func isTimeoutError(err error) bool {
