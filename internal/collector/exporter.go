@@ -976,7 +976,13 @@ func (e *Exporter) collectDHCPStatistics(ctx context.Context, ch chan<- promethe
 		stats, err := wapi.FetchAllUnpaged[model.DHCPStatistics](objectCtx, e.client, "dhcp:statistics", query)
 		cancel()
 		if err != nil {
-			if ctx.Err() == nil && isTimeoutError(err) {
+			switch {
+			case errors.Is(ctx.Err(), context.Canceled):
+				return ctx.Err()
+			case errors.Is(ctx.Err(), context.DeadlineExceeded):
+				e.logger.Debug("dhcp statistics collector deadline reached", "object_type", object.kind, "object", object.name, "ref", object.ref, "err", err)
+				return nil
+			case isTimeoutError(err):
 				e.logger.Debug("dhcp statistics object timed out", "object_type", object.kind, "object", object.name, "ref", object.ref, "err", err)
 				continue
 			}
@@ -1115,7 +1121,11 @@ func (e *Exporter) collectIPAMStatistics(ctx context.Context, ch chan<- promethe
 }
 
 func (e *Exporter) collectIPAMStatisticsForQuery(ctx context.Context, ch chan<- prometheus.Metric, view string, network string) error {
-	params := fields("network", "network_view", "cidr", "utilization", "utilization_update")
+	fieldNames := []string{"network", "network_view", "cidr", "utilization"}
+	if network != "" {
+		fieldNames = append(fieldNames, "utilization_update")
+	}
+	params := fields(fieldNames...)
 	if view != "" {
 		params.Set("network_view", view)
 	}

@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -479,6 +480,35 @@ func TestCollectorScopedBranches(t *testing.T) {
 		}
 	})
 
+	t.Run("dhcp statistics stops cleanly at collector deadline", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Timeout = 30 * time.Millisecond
+		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wapi/v2.13.7/network":
+				networks := make([]map[string]interface{}, 0, 20)
+				for i := 0; i < 20; i++ {
+					networks = append(networks, map[string]interface{}{
+						"_ref":    fmt.Sprintf("network/slow-%d", i),
+						"network": fmt.Sprintf("10.0.%d.0/24", i),
+					})
+				}
+				writeResult(t, w, networks)
+			case "/wapi/v2.13.7/range":
+				writeResult(t, w, []map[string]interface{}{})
+			case "/wapi/v2.13.7/dhcp:statistics":
+				time.Sleep(20 * time.Millisecond)
+				writeObject(t, w, map[string]interface{}{})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		})
+		defer cleanup()
+		if err := exporter.collectDHCPStatistics(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("ipam statistics omits fields unavailable on containers", func(t *testing.T) {
 		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
 			if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "conflict_count") {
@@ -486,6 +516,9 @@ func TestCollectorScopedBranches(t *testing.T) {
 			}
 			if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "unmanaged_count") {
 				t.Fatalf("ipam statistics requested unavailable unmanaged_count field: %s", fields)
+			}
+			if fields := r.URL.Query().Get("_return_fields"); strings.Contains(fields, "utilization_update") {
+				t.Fatalf("ipam statistics requested unavailable utilization_update field: %s", fields)
 			}
 			writeObject(t, w, map[string]interface{}{})
 		})
