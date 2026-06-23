@@ -93,6 +93,11 @@ type Exporter struct {
 	threatStatValue    *prometheus.GaugeVec
 }
 
+type collectorResult struct {
+	failed   bool
+	blocking bool
+}
+
 type moduleState struct {
 	Module       string        `json:"module"`
 	LastAttempt  time.Time     `json:"-"`
@@ -300,60 +305,70 @@ func (e *Exporter) RefreshOnce(ctx context.Context) error {
 
 	next := New(e.cfg, e.client, e.logger)
 	errorCount := 0
+	blockingErrorCount := 0
+	recordResult := func(result collectorResult) {
+		if !result.failed {
+			return
+		}
+		errorCount++
+		if result.blocking {
+			blockingErrorCount++
+		}
+	}
 	if next.enabled("network") {
-		errorCount += next.runCollector(ctx, "network", next.collectNetworks)
+		recordResult(next.runCollector(ctx, "network", next.collectNetworks))
 	}
 	if next.enabled("range") {
-		errorCount += next.runCollector(ctx, "range", next.collectRanges)
+		recordResult(next.runCollector(ctx, "range", next.collectRanges))
 	}
 	if next.enabled("ipv4address") {
 		configured := 0.0
 		if len(next.cfg.Networks) > 0 {
 			configured = 1
-			errorCount += next.runCollector(ctx, "ipv4address", next.collectIPv4Addresses)
+			recordResult(next.runCollector(ctx, "ipv4address", next.collectIPv4Addresses))
 		} else {
 			next.collectorUp.WithLabelValues("ipv4address").Set(1)
 		}
 		next.ipv4Configured.WithLabelValues().Set(configured)
 	}
 	if next.enabled("member") {
-		errorCount += next.runCollector(ctx, "member", next.collectMembers)
+		recordResult(next.runCollector(ctx, "member", next.collectMembers))
 	}
 	if next.enabled("restartservicestatus") {
-		errorCount += next.runCollector(ctx, "restartservicestatus", next.collectRestartServiceStatus)
+		recordResult(next.runCollector(ctx, "restartservicestatus", next.collectRestartServiceStatus))
 	}
 	if next.enabled("servicerestart") {
-		errorCount += next.runCollector(ctx, "servicerestart", next.collectServiceRestart)
+		recordResult(next.runCollector(ctx, "servicerestart", next.collectServiceRestart))
 	}
 	if next.enabled("capacity") {
-		errorCount += next.runCollector(ctx, "capacity", next.collectCapacity)
+		recordResult(next.runCollector(ctx, "capacity", next.collectCapacity))
 	}
 	if next.enabled("license") {
-		errorCount += next.runCollector(ctx, "license", next.collectLicenses)
+		recordResult(next.runCollector(ctx, "license", next.collectLicenses))
 	}
 	if next.enabled("upgradestatus") {
-		errorCount += next.runCollector(ctx, "upgradestatus", next.collectUpgradeStatus)
+		recordResult(next.runCollector(ctx, "upgradestatus", next.collectUpgradeStatus))
 	}
 	if next.enabled("dhcpstatistics") {
-		errorCount += next.runCollector(ctx, "dhcpstatistics", next.collectDHCPStatistics)
+		recordResult(next.runCollector(ctx, "dhcpstatistics", next.collectDHCPStatistics))
 	}
 	if next.enabled("ipamstatistics") {
-		errorCount += next.runCollector(ctx, "ipamstatistics", next.collectIPAMStatistics)
+		recordResult(next.runCollector(ctx, "ipamstatistics", next.collectIPAMStatistics))
 	}
 	if next.enabled("dhcpfailover") {
-		errorCount += next.runCollector(ctx, "dhcpfailover", next.collectDHCPFailover)
+		recordResult(next.runCollector(ctx, "dhcpfailover", next.collectDHCPFailover))
 	}
 	if next.enabled("allrecords") {
-		errorCount += next.runCollector(ctx, "allrecords", next.collectAllRecords)
+		recordResult(next.runCollector(ctx, "allrecords", next.collectAllRecords))
 	}
 	if next.enabled("zones") {
-		errorCount += next.runCollector(ctx, "zones", next.collectZones)
+		recordResult(next.runCollector(ctx, "zones", next.collectZones))
 	}
 	if next.enabled("dtc") {
-		errorCount += next.runCollector(ctx, "dtc", next.collectDTC)
+		recordResult(next.runCollector(ctx, "dtc", next.collectDTC))
 	}
 	if next.enabled("threatprotection") {
-		errorCount += next.runCollector(ctx, "threatprotection", next.collectThreatProtection)
+		recordResult(next.runCollector(ctx, "threatprotection", next.collectThreatProtection))
 	}
 
 	up := 1.0
@@ -366,10 +381,11 @@ func (e *Exporter) RefreshOnce(ctx context.Context) error {
 	e.up.WithLabelValues().Set(up)
 	e.scrapeDuration.WithLabelValues().Set(duration.Seconds())
 	e.refreshDuration.WithLabelValues().Set(duration.Seconds())
-	if errorCount == 0 {
+	if blockingErrorCount == 0 {
 		e.replaceCachedDataLocked(next)
 		e.cacheLastSuccess.WithLabelValues().Set(float64(finished.Unix()))
-	} else {
+	}
+	if errorCount > 0 {
 		e.refreshErrorsTotal.WithLabelValues().Inc()
 	}
 	e.updateDynamicCacheMetricsLocked(finished)
@@ -384,7 +400,7 @@ func (e *Exporter) enabled(name string) bool {
 	return !e.cfg.IsModuleDisabled(name)
 }
 
-func (e *Exporter) runCollector(parent context.Context, name string, fn func(context.Context, chan<- prometheus.Metric) error) int {
+func (e *Exporter) runCollector(parent context.Context, name string, fn func(context.Context, chan<- prometheus.Metric) error) collectorResult {
 	ctx, cancel := context.WithTimeout(parent, e.cfg.Timeout)
 	defer cancel()
 
@@ -411,9 +427,18 @@ func (e *Exporter) runCollector(parent context.Context, name string, fn func(con
 
 	if err != nil {
 		e.logger.Warn("collector failed", "collector", name, "err", err)
-		return 1
+		return collectorResult{failed: true, blocking: collectorFailureBlocksRefresh(name)}
 	}
-	return 0
+	return collectorResult{}
+}
+
+func collectorFailureBlocksRefresh(name string) bool {
+	switch name {
+	case "network", "range", "ipv4address", "member":
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Exporter) ensureModuleStateLocked(name string) *moduleState {
@@ -865,6 +890,12 @@ func (e *Exporter) collectCapacity(ctx context.Context, ch chan<- prometheus.Met
 		query.Set("name", memberName)
 		reports, err := wapi.FetchAll[model.CapacityReport](ctx, e.client, "capacityreport", query)
 		if err != nil {
+			if isCapacityReportScopeError(err) {
+				if e.logger != nil {
+					e.logger.Debug("capacity report skipped for member", "member", memberName, "err", err)
+				}
+				continue
+			}
 			return err
 		}
 		for _, report := range reports {
@@ -885,6 +916,14 @@ func (e *Exporter) collectCapacity(ctx context.Context, ch chan<- prometheus.Met
 		}
 	}
 	return nil
+}
+
+func isCapacityReportScopeError(err error) bool {
+	var wapiErr wapi.WAPIError
+	return errors.As(err, &wapiErr) &&
+		wapiErr.StatusCode == http.StatusBadRequest &&
+		wapiErr.Code == "Client.Ibap.Data" &&
+		strings.Contains(wapiErr.Text, "GMC can only retrieve the capacity report for itself")
 }
 
 func (e *Exporter) collectLicenses(ctx context.Context, ch chan<- prometheus.Metric) error {

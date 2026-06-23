@@ -461,6 +461,51 @@ func TestExporterKeepsCacheAfterFailedRefresh(t *testing.T) {
 	}
 }
 
+func TestExporterPublishesCacheAfterOptionalCollectorFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wapi/v2.13.7/network":
+			writeResult(t, w, []map[string]interface{}{
+				{"network": "10.0.0.0/24", "network_view": "default"},
+			})
+		case "/wapi/v2.13.7/threatprotection:statistics":
+			http.Error(w, "slow collector failed", http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DisabledModules = allModulesExceptAny("network", "threatprotection")
+	client, err := wapi.NewClient(wapi.Config{
+		BaseURL:  server.URL + "/wapi/v2.13.7",
+		Username: "user",
+		Password: "pass",
+		PageSize: cfg.PageSize,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+
+	if err := exporter.RefreshOnce(context.Background()); err == nil {
+		t.Fatalf("expected degraded refresh error")
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := metricValue(t, families, "infoblox_network_info"); value != 1 {
+		t.Fatalf("network metric after degraded refresh = %f, want 1", value)
+	}
+	if value := metricValue(t, families, "infoblox_up"); value != 0 {
+		t.Fatalf("degraded refresh should set infoblox_up = 0, got %f", value)
+	}
+}
+
 func TestExporterReplacesCacheAfterSuccessfulRefresh(t *testing.T) {
 	empty := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -517,6 +562,10 @@ func TestExporterReplacesCacheAfterSuccessfulRefresh(t *testing.T) {
 }
 
 func allModulesExcept(keep string) []string {
+	return allModulesExceptAny(keep)
+}
+
+func allModulesExceptAny(keep ...string) []string {
 	modules := []string{
 		"network",
 		"range",
@@ -535,9 +584,13 @@ func allModulesExcept(keep string) []string {
 		"dtc",
 		"threatprotection",
 	}
-	out := make([]string, 0, len(modules)-1)
+	kept := map[string]bool{}
+	for _, module := range keep {
+		kept[module] = true
+	}
+	out := make([]string, 0, len(modules)-len(kept))
 	for _, module := range modules {
-		if module != keep {
+		if !kept[module] {
 			out = append(out, module)
 		}
 	}

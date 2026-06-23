@@ -76,7 +76,7 @@ func TestRunCollectorUsesRefreshContext(t *testing.T) {
 
 	if got := exporter.runCollector(parent, "test", func(ctx context.Context, _ chan<- prometheus.Metric) error {
 		return ctx.Err()
-	}); got != 1 {
+	}); !got.failed {
 		t.Fatalf("collector should inherit canceled refresh context")
 	}
 }
@@ -392,6 +392,32 @@ func TestCollectorScopedBranches(t *testing.T) {
 						"name":          "127.0.0.1",
 						"object_counts": []map[string]interface{}{{"type_name": "Grid Member", "count": 37}},
 					},
+				})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		})
+		defer cleanup()
+		if err := exporter.collectCapacity(context.Background(), metricBuffer()); err != nil {
+			t.Fatal(err)
+		}
+		if !seenCapacity {
+			t.Fatalf("capacityreport was not queried")
+		}
+	})
+
+	t.Run("capacity skips GMC scoped member errors", func(t *testing.T) {
+		seenCapacity := false
+		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wapi/v2.13.7/member":
+				writeResult(t, w, []map[string]interface{}{{"host_name": "member-a"}})
+			case "/wapi/v2.13.7/capacityreport":
+				seenCapacity = true
+				w.WriteHeader(http.StatusBadRequest)
+				writeObject(t, w, map[string]interface{}{
+					"code": "Client.Ibap.Data",
+					"text": "GMC can only retrieve the capacity report for itself, not for other physical nodes.",
 				})
 			default:
 				t.Fatalf("unexpected path: %s", r.URL.Path)
