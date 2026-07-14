@@ -160,7 +160,7 @@ func New(cfg config.Config, client *wapi.Client, logger *slog.Logger) *Exporter 
 		up:                 g("up", "Whether the last Infoblox background refresh completed without collector errors.", nil),
 		scrapeDuration:     g("scrape_duration_seconds", "Compatibility alias for the last Infoblox background refresh duration.", nil),
 		collectorUp:        g("collector_up", "Whether the named Infoblox collector completed successfully during the last refresh.", []string{"collector"}),
-		ipv4Configured:     g("ipv4address_collector_configured", "Whether the IPv4 address collector has explicit networks configured.", nil),
+		ipv4Configured:     g("ipv4address_collector_configured", "Whether the IPv4 address collector has explicit IPv4 networks configured.", nil),
 		refreshDuration:    g("refresh_duration_seconds", "Duration of the last Infoblox background refresh.", nil),
 		refreshTotal:       c("refresh_total", "Total Infoblox background refresh attempts.", nil),
 		refreshErrorsTotal: c("refresh_errors_total", "Total Infoblox background refresh failures.", nil),
@@ -323,7 +323,7 @@ func (e *Exporter) RefreshOnce(ctx context.Context) error {
 	}
 	if next.enabled("ipv4address") {
 		configured := 0.0
-		if len(next.cfg.Networks) > 0 {
+		if len(next.cfg.IPv4Networks) > 0 {
 			configured = 1
 			recordResult(next.runCollector(ctx, "ipv4address", next.collectIPv4Addresses))
 		} else {
@@ -732,7 +732,7 @@ func (e *Exporter) collectRangesForQuery(ctx context.Context, ch chan<- promethe
 
 func (e *Exporter) collectIPv4Addresses(ctx context.Context, ch chan<- prometheus.Metric) error {
 	for _, view := range viewsOrSingleEmpty(e.cfg.NetworkViews) {
-		for _, network := range e.cfg.Networks {
+		for _, network := range e.cfg.IPv4Networks {
 			if err := e.collectIPv4AddressesForNetwork(ctx, ch, view, network); err != nil {
 				return err
 			}

@@ -52,6 +52,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		networkViewsStr    string
 		dnsViewsStr        string
 		networksStr        string
+		ipv4NetworksStr    string
 		zonesStr           string
 		upgradeTypesStr    string
 		bindPort           int
@@ -80,7 +81,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.StringVar(&caFile, "ca-file", "", "Path to a custom CA certificate bundle")
 	flags.StringVar(&networkViewsStr, "network-views", "", "Comma-separated network views to query (default: all)")
 	flags.StringVar(&dnsViewsStr, "dns-views", "", "Comma-separated DNS views to query (default: all)")
-	flags.StringVar(&networksStr, "networks", "", "Comma-separated CIDRs to scope network, range, IPv4, DHCP, and IPAM collectors")
+	flags.StringVar(&networksStr, "networks", "", "Comma-separated CIDRs to scope network, range, DHCP, and IPAM collectors")
+	flags.StringVar(&ipv4NetworksStr, "ipv4-networks", "", "Comma-separated CIDRs to scope the IPv4 address collector")
 	flags.StringVar(&zonesStr, "zones", "", "Comma-separated DNS zones to scope allrecords and zones collectors")
 	flags.StringVar(&upgradeTypesStr, "upgrade-status-types", "", "Comma-separated upgrade status types")
 	flags.BoolVar(&showVersion, "version", false, "Display application version")
@@ -127,6 +129,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	cfg.NetworkViews = chooseCSV(networkViewsStr, config.GetNetworkViews(), cfg.NetworkViews)
 	cfg.DNSViews = chooseCSV(dnsViewsStr, config.GetDNSViews(), cfg.DNSViews)
 	cfg.Networks = chooseCSV(networksStr, config.GetNetworks(), cfg.Networks)
+	cfg.IPv4Networks = chooseCSV(ipv4NetworksStr, config.GetIPv4Networks(), cfg.IPv4Networks)
 	cfg.Zones = chooseCSV(zonesStr, config.GetZones(), cfg.Zones)
 	cfg.UpgradeStatusTypes = chooseCSV(upgradeTypesStr, config.GetUpgradeStatusTypes(), cfg.UpgradeStatusTypes)
 
@@ -175,6 +178,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		"labels", len(cfg.Labels),
 		"disabled_modules", len(cfg.DisabledModules),
 		"networks", len(cfg.Networks),
+		"ipv4_networks", len(cfg.IPv4Networks),
 		"zones", len(cfg.Zones),
 	)
 

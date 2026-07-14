@@ -132,12 +132,18 @@ func TestRunServerClosed(t *testing.T) {
 	t.Setenv("INFOBLOX_NETWORK_VIEWS", "default")
 	t.Setenv("INFOBLOX_DNS_VIEWS", "default")
 	t.Setenv("INFOBLOX_NETWORKS", "10.1.216.0/24")
+	t.Setenv("INFOBLOX_IPV4_NETWORKS", "10.1.217.0/24")
 	t.Setenv("INFOBLOX_ZONES", "example.test")
 	t.Setenv("INFOBLOX_UPGRADE_STATUS_TYPES", "GRID")
 
 	caPath := writeTestCert(t)
 	restore := replaceRunHooks(t)
 	defer restore()
+	var exporterConfig config.Config
+	newExporter = func(cfg config.Config, client *wapi.Client, logger *slog.Logger) *collector.Exporter {
+		exporterConfig = cfg
+		return collector.New(cfg, client, logger)
+	}
 	defaultRegisterer = prometheus.NewRegistry()
 	listenAndServe = func(*http.Server) error {
 		return http.ErrServerClosed
@@ -155,12 +161,16 @@ func TestRunServerClosed(t *testing.T) {
 		"-network-views", "default",
 		"-dns-views", "default",
 		"-networks", "10.1.216.0/24",
+		"-ipv4-networks", "10.1.218.0/24",
 		"-zones", "example.test",
 		"-upgrade-status-types", "GRID",
 		"-debug",
 	}
 	if code := run(args, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("unexpected code: %d", code)
+	}
+	if !reflect.DeepEqual(exporterConfig.IPv4Networks, []string{"10.1.218.0/24"}) {
+		t.Fatalf("unexpected IPv4 networks: %#v", exporterConfig.IPv4Networks)
 	}
 }
 
@@ -373,6 +383,7 @@ func clearInfobloxEnv(t *testing.T) {
 		"INFOBLOX_NETWORK_VIEWS",
 		"INFOBLOX_DNS_VIEWS",
 		"INFOBLOX_NETWORKS",
+		"INFOBLOX_IPV4_NETWORKS",
 		"INFOBLOX_ZONES",
 		"INFOBLOX_UPGRADE_STATUS_TYPES",
 	} {
@@ -386,6 +397,7 @@ func replaceRunHooks(t *testing.T) func() {
 	oldShutdownServer := shutdownServer
 	oldSignalNotify := signalNotify
 	oldSignalStop := signalStop
+	oldNewExporter := newExporter
 	oldDefaultRegisterer := defaultRegisterer
 
 	shutdownServer = func(server *http.Server, ctx context.Context) error {
@@ -400,6 +412,7 @@ func replaceRunHooks(t *testing.T) func() {
 		shutdownServer = oldShutdownServer
 		signalNotify = oldSignalNotify
 		signalStop = oldSignalStop
+		newExporter = oldNewExporter
 		defaultRegisterer = oldDefaultRegisterer
 	}
 }

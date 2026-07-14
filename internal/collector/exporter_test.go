@@ -254,6 +254,7 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 	cfg.NetworkViews = []string{"default"}
 	cfg.DNSViews = []string{"default"}
 	cfg.Networks = []string{"10.1.216.0/24"}
+	cfg.IPv4Networks = []string{"10.1.216.0/24"}
 	cfg.Zones = []string{"example.test"}
 
 	client, err := wapi.NewClient(wapi.Config{
@@ -311,6 +312,81 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 		if !names[expected] {
 			t.Fatalf("missing metric family %s", expected)
 		}
+	}
+}
+
+func TestExporterUsesIndependentNetworkScopes(t *testing.T) {
+	tests := []struct {
+		name               string
+		networks           []string
+		wantInventoryScope string
+	}{
+		{
+			name:               "IPv4 scope leaves inventory unfiltered",
+			wantInventoryScope: "",
+		},
+		{
+			name:               "inventory and IPv4 scopes differ",
+			networks:           []string{"10.0.0.0/24"},
+			wantInventoryScope: "10.0.0.0/24",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			queries := map[string]string{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				queries[r.URL.Path] = r.URL.Query().Get("network")
+				writeResult(t, w, []map[string]interface{}{})
+			}))
+			defer server.Close()
+
+			cfg := config.Default()
+			cfg.DisabledModules = allModulesExceptAny("network", "range", "ipv4address")
+			cfg.Networks = tt.networks
+			cfg.IPv4Networks = []string{"10.1.0.0/24"}
+			client, err := wapi.NewClient(wapi.Config{
+				BaseURL:  server.URL + "/wapi/v2.13.7",
+				Username: "user",
+				Password: "pass",
+				PageSize: cfg.PageSize,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			registry := prometheus.NewRegistry()
+			exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+			registry.MustRegister(exporter)
+			if err := exporter.RefreshOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+
+			for _, path := range []string{"/wapi/v2.13.7/network", "/wapi/v2.13.7/range"} {
+				got, ok := queries[path]
+				if !ok {
+					t.Fatalf("missing request to %s", path)
+				}
+				if got != tt.wantInventoryScope {
+					t.Fatalf("%s network scope = %q, want %q", path, got, tt.wantInventoryScope)
+				}
+			}
+			got, ok := queries["/wapi/v2.13.7/ipv4address"]
+			if !ok {
+				t.Fatal("missing IPv4 address request")
+			}
+			if got != "10.1.0.0/24" {
+				t.Fatalf("IPv4 network scope = %q, want %q", got, "10.1.0.0/24")
+			}
+
+			families, err := registry.Gather()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if value := metricValue(t, families, "infoblox_ipv4address_collector_configured"); value != 1 {
+				t.Fatalf("IPv4 collector configured = %f, want 1", value)
+			}
+		})
 	}
 }
 

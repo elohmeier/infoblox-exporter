@@ -48,6 +48,7 @@ func TestCollectReportsFailure(t *testing.T) {
 
 func TestCollectIPv4Unconfigured(t *testing.T) {
 	cfg := config.Default()
+	cfg.Networks = []string{"10.0.0.0/24"}
 	cfg.DisabledModules = []string{
 		"network", "range", "member", "restartservicestatus", "servicerestart",
 		"capacity", "license", "upgradestatus", "dhcpstatistics", "ipamstatistics",
@@ -60,8 +61,15 @@ func TestCollectIPv4Unconfigured(t *testing.T) {
 
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(exporter)
-	if _, err := registry.Gather(); err != nil {
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := metricValue(t, families, "infoblox_ipv4address_collector_configured"); value != 0 {
+		t.Fatalf("IPv4 collector configured = %f, want 0", value)
 	}
 }
 
@@ -97,7 +105,7 @@ func TestCollectorPrimaryErrorPaths(t *testing.T) {
 			name: "ipv4address",
 			cfg: func() config.Config {
 				cfg := config.Default()
-				cfg.Networks = []string{"10.0.0.0/24"}
+				cfg.IPv4Networks = []string{"10.0.0.0/24"}
 				return cfg
 			},
 			call: func(ctx context.Context, e *Exporter, ch chan prometheus.Metric) error {
@@ -616,7 +624,7 @@ func TestCollectorScopedBranches(t *testing.T) {
 func TestCollectorSuccessBranches(t *testing.T) {
 	t.Run("ipv4 empty types", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.Networks = []string{"10.0.0.0/24"}
+		cfg.IPv4Networks = []string{"10.0.0.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, _ *http.Request) {
 			writeResult(t, w, []map[string]interface{}{
 				{"ip_address": "10.0.0.1", "status": "USED"},

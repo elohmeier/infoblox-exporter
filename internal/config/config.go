@@ -18,6 +18,7 @@ type Config struct {
 	NetworkViews       []string
 	DNSViews           []string
 	Networks           []string
+	IPv4Networks       []string
 	Zones              []string
 	UpgradeStatusTypes []string
 }
@@ -111,6 +112,10 @@ func GetDNSViews() string {
 
 func GetNetworks() string {
 	return os.Getenv("INFOBLOX_NETWORKS")
+}
+
+func GetIPv4Networks() string {
+	return os.Getenv("INFOBLOX_IPV4_NETWORKS")
 }
 
 func GetZones() string {

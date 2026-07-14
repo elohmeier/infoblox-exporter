@@ -15,7 +15,9 @@ The exporter uses read-only WAPI requests with paging enabled. A background sche
 ```sh
 export INFOBLOX_USERNAME='<readonly-user>'
 export INFOBLOX_PASSWORD='<password>'
-go run . -url https://gm.example.com/wapi/v2.13.7 -networks 10.1.216.0/24
+go run . -url https://gm.example.com/wapi/v2.13.7 \
+  -networks 10.1.216.0/24 \
+  -ipv4-networks 10.1.216.0/24
 ```
 
 The exporter listens on `:9717` and exposes `/metrics`, `/health`, `/readyz`, and `/debug/cache`.
@@ -76,7 +78,8 @@ Flags follow the same style as the neighboring NetScaler exporter:
 | `-ca-file` | `INFOBLOX_CA_FILE` | none | Custom CA bundle path. |
 | `-network-views` | `INFOBLOX_NETWORK_VIEWS` | all | Comma-separated network views for IPAM/DHCP collectors. |
 | `-dns-views` | `INFOBLOX_DNS_VIEWS` | all | Comma-separated DNS views. |
-| `-networks` | `INFOBLOX_NETWORKS` | none | Comma-separated CIDRs for network, range, IPv4 address, DHCP statistics, and IPAM statistics collectors. |
+| `-networks` | `INFOBLOX_NETWORKS` | none | Comma-separated CIDRs for network, range, DHCP statistics, and IPAM statistics collectors. |
+| `-ipv4-networks` | `INFOBLOX_IPV4_NETWORKS` | none | Comma-separated CIDRs for the IPv4 address collector. |
 | `-zones` | `INFOBLOX_ZONES` | none | Comma-separated DNS zones for `allrecords` and `zones`. |
 | `-upgrade-status-types` | `INFOBLOX_UPGRADE_STATUS_TYPES` | `GRID,GROUP,VNODE,PNODE` | Upgrade status object types to query. |
 
@@ -90,7 +93,11 @@ Disable collectors by these names: `network`, `range`, `ipv4address`, `member`, 
 
 The `network`, `range`, and `member` collectors can query all objects in the configured network views. If `-networks` is set, network and range collection is restricted to those CIDRs.
 
-The `ipv4address` collector requires explicit `-networks` entries. This avoids accidentally walking very large IPAM spaces.
+The `ipv4address` collector requires explicit `-ipv4-networks` entries. This avoids accidentally walking very large IPAM spaces without restricting the scope of the other network-based collectors.
+
+### Migrating IPv4 collector configuration
+
+`-networks` and `INFOBLOX_NETWORKS` no longer configure the `ipv4address` collector. Existing users must copy the CIDRs they want to inspect to `-ipv4-networks` or `INFOBLOX_IPV4_NETWORKS`. Keep the original network option as well when the network, range, DHCP statistics, and IPAM statistics collectors should remain restricted to the same CIDRs.
 
 The `allrecords` collector emits one `infoblox_dns_record_info` metric per DNS record plus aggregate counts. It requires explicit `-zones` entries because WAPI requires a zone search parameter for allrecords searches. Use `-dns-views` when you need to restrict DNS views.
 
@@ -109,7 +116,8 @@ docker run --rm -p 9717:9717 \
   -e INFOBLOX_PASSWORD='<password>' \
   ghcr.io/elohmeier/infoblox-exporter:latest \
   -url https://gm.example.com/wapi/v2.13.7 \
-  -networks 10.1.216.0/24
+  -networks 10.1.216.0/24 \
+  -ipv4-networks 10.1.216.0/24
 ```
 
 ## Build
