@@ -116,6 +116,7 @@ type IPv4Address struct {
 	NetworkView string   `json:"network_view"`
 	Status      string   `json:"status"`
 	LeaseState  string   `json:"lease_state"`
+	Names       []string `json:"names"`
 	Types       []string `json:"types"`
 	Usage       []string `json:"usage"`
 	IsConflict  bool     `json:"is_conflict"`

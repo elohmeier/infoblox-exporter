@@ -53,6 +53,7 @@ type Exporter struct {
 	rangeDHCPUtil      *prometheus.GaugeVec
 	rangeDHCPStatus    *prometheus.GaugeVec
 	rangeDynamicHosts  *prometheus.GaugeVec
+	ipv4Info           *prometheus.GaugeVec
 	ipv4StatusCount    *prometheus.GaugeVec
 	ipv4TypeCount      *prometheus.GaugeVec
 	ipv4UsageCount     *prometheus.GaugeVec
@@ -178,6 +179,7 @@ func New(cfg config.Config, client *wapi.Client, logger *slog.Logger) *Exporter 
 		rangeDHCPUtil:      g("range_dhcp_utilization_ratio", "Infoblox DHCP range utilization ratio.", []string{"network", "network_view", "start_addr", "end_addr"}),
 		rangeDHCPStatus:    g("range_dhcp_utilization_status", "Infoblox DHCP range utilization status as a one-hot gauge.", []string{"network", "network_view", "start_addr", "end_addr", "status"}),
 		rangeDynamicHosts:  g("range_dynamic_hosts", "Total DHCP leases issued for the Infoblox range.", []string{"network", "network_view", "start_addr", "end_addr"}),
+		ipv4Info:           g("ipv4address_info", "Infoblox occupied IPv4 address metadata. This can be high-cardinality.", []string{"ip_address", "network", "network_view", "status", "names", "types", "usage"}),
 		ipv4StatusCount:    g("ipv4address_status_count", "Infoblox IPv4 address count by status.", []string{"network", "network_view", "status"}),
 		ipv4TypeCount:      g("ipv4address_type_count", "Infoblox IPv4 address count by type.", []string{"network", "network_view", "type"}),
 		ipv4UsageCount:     g("ipv4address_usage_count", "Infoblox IPv4 address count by usage.", []string{"network", "network_view", "usage"}),
@@ -466,7 +468,7 @@ func (e *Exporter) dataGaugeVecs() []*prometheus.GaugeVec {
 	return []*prometheus.GaugeVec{
 		e.networkInfo, e.networkUtilization, e.networkDHCPUtil, e.networkUtilUpdated, e.networkDHCPStatus,
 		e.rangeInfo, e.rangeDHCPUtil, e.rangeDHCPStatus, e.rangeDynamicHosts,
-		e.ipv4StatusCount, e.ipv4TypeCount, e.ipv4UsageCount, e.ipv4LeaseCount, e.ipv4ConflictCount,
+		e.ipv4Info, e.ipv4StatusCount, e.ipv4TypeCount, e.ipv4UsageCount, e.ipv4LeaseCount, e.ipv4ConflictCount,
 		e.memberInfo, e.memberService,
 		e.restartService, e.serviceRestart, e.serviceRestartReq, e.serviceRestartTime,
 		e.capacityInfo, e.capacityUsed, e.capacityMax, e.capacityObjects, e.capacityObjectType,
@@ -495,6 +497,7 @@ func (e *Exporter) replaceCachedDataLocked(next *Exporter) {
 	e.rangeDHCPUtil = next.rangeDHCPUtil
 	e.rangeDHCPStatus = next.rangeDHCPStatus
 	e.rangeDynamicHosts = next.rangeDynamicHosts
+	e.ipv4Info = next.ipv4Info
 	e.ipv4StatusCount = next.ipv4StatusCount
 	e.ipv4TypeCount = next.ipv4TypeCount
 	e.ipv4UsageCount = next.ipv4UsageCount
@@ -742,7 +745,11 @@ func (e *Exporter) collectIPv4Addresses(ctx context.Context, ch chan<- prometheu
 }
 
 func (e *Exporter) collectIPv4AddressesForNetwork(ctx context.Context, ch chan<- prometheus.Metric, view string, network string) error {
-	params := fields("ip_address", "network", "network_view", "status", "lease_state", "types", "usage", "is_conflict")
+	returnFields := []string{"ip_address", "network", "network_view", "status", "lease_state", "types", "usage", "is_conflict"}
+	if e.cfg.IPv4AddressInfo {
+		returnFields = append(returnFields, "names")
+	}
+	params := fields(returnFields...)
 	params.Set("network", network)
 	if view != "" {
 		params.Set("network_view", view)
@@ -763,6 +770,17 @@ func (e *Exporter) collectIPv4AddressesForNetwork(ctx context.Context, ch chan<-
 	for _, address := range addresses {
 		if address.NetworkView != "" {
 			networkView = address.NetworkView
+		}
+		if e.cfg.IPv4AddressInfo && strings.EqualFold(address.Status, "USED") && address.IPAddress != "" {
+			e.ipv4Info.WithLabelValues(
+				address.IPAddress,
+				valueOr(address.Network, network),
+				valueOr(address.NetworkView, view, "default"),
+				address.Status,
+				canonicalLabelValues(address.Names),
+				canonicalLabelValues(address.Types),
+				canonicalLabelValues(address.Usage),
+			).Set(1)
 		}
 		statusCounts[valueOr(address.Status, "unknown")]++
 		leaseCounts[valueOr(address.LeaseState, "none")]++
@@ -1354,6 +1372,23 @@ func valueOr(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func canonicalLabelValues(values []string) string {
+	unique := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			unique[value] = struct{}{}
+		}
+	}
+
+	normalized := make([]string, 0, len(unique))
+	for value := range unique {
+		normalized = append(normalized, value)
+	}
+	sort.Strings(normalized)
+	return strings.Join(normalized, ",")
 }
 
 func boolLabel(value bool) string {

@@ -37,6 +37,7 @@ func TestEnvAccessors(t *testing.T) {
 	t.Setenv("INFOBLOX_DNS_VIEWS", "default")
 	t.Setenv("INFOBLOX_NETWORKS", "10.1.216.0/24")
 	t.Setenv("INFOBLOX_IPV4_NETWORKS", "10.1.217.0/24")
+	t.Setenv("INFOBLOX_IPV4_ADDRESS_INFO", "true")
 	t.Setenv("INFOBLOX_ZONES", "example.test")
 	t.Setenv("INFOBLOX_UPGRADE_STATUS_TYPES", "GRID")
 
@@ -58,6 +59,9 @@ func TestEnvAccessors(t *testing.T) {
 	}
 	if GetIPv4Networks() != "10.1.217.0/24" {
 		t.Fatalf("unexpected IPv4 networks: %s", GetIPv4Networks())
+	}
+	if !GetIPv4AddressInfo() {
+		t.Fatalf("IPv4 address info should be enabled")
 	}
 	if GetLabels() != "env=test" || GetDisabledModules() != "dtc" || GetPageSize() != "500" || GetTimeout() != "10s" {
 		t.Fatalf("unexpected env values")
@@ -101,7 +105,7 @@ func TestEnvFallbacksAndDefaults(t *testing.T) {
 
 func TestConfigHelpers(t *testing.T) {
 	defaults := Default()
-	if defaults.Timeout == 0 || defaults.RefreshInterval == 0 || defaults.RefreshTimeout == 0 || defaults.MaxStale == 0 || defaults.PageSize != 1000 || len(defaults.DNSViews) != 0 || len(defaults.UpgradeStatusTypes) != 4 {
+	if defaults.Timeout == 0 || defaults.RefreshInterval == 0 || defaults.RefreshTimeout == 0 || defaults.MaxStale == 0 || defaults.PageSize != 1000 || len(defaults.DNSViews) != 0 || len(defaults.UpgradeStatusTypes) != 4 || defaults.IPv4AddressInfo {
 		t.Fatalf("unexpected defaults: %#v", defaults)
 	}
 

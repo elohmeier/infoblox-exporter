@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/elohmeier/infoblox-exporter/internal/config"
@@ -390,6 +391,172 @@ func TestExporterUsesIndependentNetworkScopes(t *testing.T) {
 	}
 }
 
+func TestIPv4AddressInfoOptIn(t *testing.T) {
+	tests := []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "disabled by default"},
+		{name: "enabled for occupied addresses", enabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var returnFields string
+			var statusFilter string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/wapi/v2.13.7/ipv4address" {
+					t.Fatalf("unexpected path: %s", r.URL.Path)
+				}
+				returnFields = r.URL.Query().Get("_return_fields")
+				statusFilter = r.URL.Query().Get("status")
+				writeResult(t, w, []map[string]interface{}{
+					{
+						"ip_address":   "10.203.33.17",
+						"network":      "10.203.33.0/24",
+						"network_view": "default",
+						"status":       "USED",
+						"names":        []string{"host-b.example", "", "host-a.example", "host-a.example"},
+						"types":        []string{"HOST", "HOST"},
+						"usage":        []string{"DNS", "DHCP"},
+					},
+					{
+						"ip_address":   "10.203.33.18",
+						"network":      "10.203.33.0/24",
+						"network_view": "default",
+						"status":       "UNUSED",
+						"names":        []string{"unused.example"},
+					},
+				})
+			}))
+			defer server.Close()
+
+			cfg := config.Default()
+			cfg.DisabledModules = allModulesExcept("ipv4address")
+			cfg.IPv4Networks = []string{"10.203.33.0/24"}
+			cfg.IPv4AddressInfo = tt.enabled
+			client, err := wapi.NewClient(wapi.Config{
+				BaseURL:  server.URL + "/wapi/v2.13.7",
+				Username: "user",
+				Password: "pass",
+				PageSize: cfg.PageSize,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			registry := prometheus.NewRegistry()
+			exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+			registry.MustRegister(exporter)
+			if err := exporter.RefreshOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			families, err := registry.Gather()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if strings.Contains(returnFields, "names") != tt.enabled {
+				t.Fatalf("_return_fields = %q, names enabled = %t", returnFields, tt.enabled)
+			}
+			if statusFilter != "" {
+				t.Fatalf("aggregate request unexpectedly filtered by status %q", statusFilter)
+			}
+			unused := metricForLabels(t, families, "infoblox_ipv4address_status_count", map[string]string{
+				"network": "10.203.33.0/24", "network_view": "default", "status": "UNUSED",
+			})
+			if unused.GetGauge().GetValue() != 1 {
+				t.Fatalf("unused address count = %f, want 1", unused.GetGauge().GetValue())
+			}
+
+			if !tt.enabled {
+				if hasMetric(families, "infoblox_ipv4address_info") {
+					t.Fatalf("IPv4 address info should be absent when disabled")
+				}
+				return
+			}
+
+			info := metricForLabels(t, families, "infoblox_ipv4address_info", map[string]string{
+				"ip_address":   "10.203.33.17",
+				"network":      "10.203.33.0/24",
+				"network_view": "default",
+				"status":       "USED",
+				"names":        "host-a.example,host-b.example",
+				"types":        "HOST",
+				"usage":        "DHCP,DNS",
+			})
+			if info.GetGauge().GetValue() != 1 {
+				t.Fatalf("IPv4 address info = %f, want 1", info.GetGauge().GetValue())
+			}
+			if familyMetricCount(families, "infoblox_ipv4address_info") != 1 {
+				t.Fatalf("IPv4 address info should contain only the occupied address")
+			}
+		})
+	}
+}
+
+func TestIPv4AddressInfoReplacesCache(t *testing.T) {
+	empty := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wapi/v2.13.7/ipv4address" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if empty {
+			writeResult(t, w, []map[string]interface{}{})
+			return
+		}
+		writeResult(t, w, []map[string]interface{}{
+			{
+				"ip_address":   "10.203.33.17",
+				"network":      "10.203.33.0/24",
+				"network_view": "default",
+				"status":       "USED",
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DisabledModules = allModulesExcept("ipv4address")
+	cfg.IPv4Networks = []string{"10.203.33.0/24"}
+	cfg.IPv4AddressInfo = true
+	client, err := wapi.NewClient(wapi.Config{
+		BaseURL:  server.URL + "/wapi/v2.13.7",
+		Username: "user",
+		Password: "pass",
+		PageSize: cfg.PageSize,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry := prometheus.NewRegistry()
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry.MustRegister(exporter)
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMetric(families, "infoblox_ipv4address_info") {
+		t.Fatalf("expected cached IPv4 address info")
+	}
+
+	empty = true
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	families, err = registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasMetric(families, "infoblox_ipv4address_info") {
+		t.Fatalf("successful empty refresh should remove IPv4 address info")
+	}
+}
+
 func TestExporterHonorsDisabledModules(t *testing.T) {
 	requested := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -680,6 +847,42 @@ func hasMetric(families []*dto.MetricFamily, name string) bool {
 		}
 	}
 	return false
+}
+
+func familyMetricCount(families []*dto.MetricFamily, name string) int {
+	for _, family := range families {
+		if family.GetName() == name {
+			return len(family.Metric)
+		}
+	}
+	return 0
+}
+
+func metricForLabels(t *testing.T, families []*dto.MetricFamily, name string, labels map[string]string) *dto.Metric {
+	t.Helper()
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.Metric {
+			if len(metric.Label) != len(labels) {
+				continue
+			}
+			matches := true
+			for _, pair := range metric.Label {
+				value, ok := labels[pair.GetName()]
+				if !ok || value != pair.GetValue() {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				return metric
+			}
+		}
+	}
+	t.Fatalf("missing metric %s with labels %#v", name, labels)
+	return nil
 }
 
 func writeResult(t *testing.T, w http.ResponseWriter, result interface{}) {

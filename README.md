@@ -8,7 +8,7 @@
 
 Prometheus exporter for selected Infoblox NIOS WAPI inventory and utilization data.
 
-The exporter uses read-only WAPI requests with paging enabled. A background scheduler refreshes data into an in-process cache, and Prometheus scrapes read that cache only. IPv4 address data is aggregated by network/view/status/type/usage instead of exposing per-IP, hostname, or MAC labels. DNS `allrecords` are exported both as aggregate counts and per-record info/TTL metrics.
+The exporter uses read-only WAPI requests with paging enabled. A background scheduler refreshes data into an in-process cache, and Prometheus scrapes read that cache only. IPv4 address data is aggregated by network/view/status/type/usage by default; an explicit opt-in can additionally expose metadata for occupied addresses. DNS `allrecords` are exported both as aggregate counts and per-record info/TTL metrics.
 
 ## Quick Start
 
@@ -43,6 +43,7 @@ Core metrics include:
 - `infoblox_ipv4address_status_count{network,network_view,status}`
 - `infoblox_ipv4address_type_count{network,network_view,type}`
 - `infoblox_ipv4address_usage_count{network,network_view,usage}`
+- `infoblox_ipv4address_info{ip_address,network,network_view,status,names,types,usage}` (opt-in)
 - `infoblox_member_service_status{member,service,status}`
 - `infoblox_restart_service_status{member,service,status}`
 - `infoblox_service_restart_status_count{parent,grouped,state}`
@@ -80,6 +81,7 @@ Flags follow the same style as the neighboring NetScaler exporter:
 | `-dns-views` | `INFOBLOX_DNS_VIEWS` | all | Comma-separated DNS views. |
 | `-networks` | `INFOBLOX_NETWORKS` | none | Comma-separated CIDRs for network, range, DHCP statistics, and IPAM statistics collectors. |
 | `-ipv4-networks` | `INFOBLOX_IPV4_NETWORKS` | none | Comma-separated CIDRs for the IPv4 address collector. |
+| `-ipv4-address-info` | `INFOBLOX_IPV4_ADDRESS_INFO` | `false` | Expose a high-cardinality `infoblox_ipv4address_info` series for every occupied address in the configured IPv4 networks. |
 | `-zones` | `INFOBLOX_ZONES` | none | Comma-separated DNS zones for `allrecords` and `zones`. |
 | `-upgrade-status-types` | `INFOBLOX_UPGRADE_STATUS_TYPES` | `GRID,GROUP,VNODE,PNODE` | Upgrade status object types to query. |
 
@@ -94,6 +96,8 @@ Disable collectors by these names: `network`, `range`, `ipv4address`, `member`, 
 The `network`, `range`, and `member` collectors can query all objects in the configured network views. If `-networks` is set, network and range collection is restricted to those CIDRs.
 
 The `ipv4address` collector requires explicit `-ipv4-networks` entries. This avoids accidentally walking very large IPAM spaces without restricting the scope of the other network-based collectors.
+
+Per-address metadata is disabled by default even when IPv4 networks are configured. Enable `-ipv4-address-info` (or `INFOBLOX_IPV4_ADDRESS_INFO=true`) to emit one `infoblox_ipv4address_info` gauge for each address whose WAPI status is `USED`. The `names`, `types`, and `usage` arrays are sorted, deduplicated, and joined with commas. This metric exposes hostname inventory and can create many Prometheus series, so keep `-ipv4-networks` narrowly scoped.
 
 ### Migrating IPv4 collector configuration
 

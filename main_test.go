@@ -162,6 +162,7 @@ func TestRunServerClosed(t *testing.T) {
 		"-dns-views", "default",
 		"-networks", "10.1.216.0/24",
 		"-ipv4-networks", "10.1.218.0/24",
+		"-ipv4-address-info",
 		"-zones", "example.test",
 		"-upgrade-status-types", "GRID",
 		"-debug",
@@ -171,6 +172,9 @@ func TestRunServerClosed(t *testing.T) {
 	}
 	if !reflect.DeepEqual(exporterConfig.IPv4Networks, []string{"10.1.218.0/24"}) {
 		t.Fatalf("unexpected IPv4 networks: %#v", exporterConfig.IPv4Networks)
+	}
+	if !exporterConfig.IPv4AddressInfo {
+		t.Fatalf("IPv4 address info should be enabled")
 	}
 }
 
@@ -384,6 +388,7 @@ func clearInfobloxEnv(t *testing.T) {
 		"INFOBLOX_DNS_VIEWS",
 		"INFOBLOX_NETWORKS",
 		"INFOBLOX_IPV4_NETWORKS",
+		"INFOBLOX_IPV4_ADDRESS_INFO",
 		"INFOBLOX_ZONES",
 		"INFOBLOX_UPGRADE_STATUS_TYPES",
 	} {

@@ -62,6 +62,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		refreshTimeout     time.Duration
 		maxStale           time.Duration
 		ignoreCert         bool
+		ipv4AddressInfo    bool
 		showVersion        bool
 		debug              bool
 	)
@@ -83,6 +84,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.StringVar(&dnsViewsStr, "dns-views", "", "Comma-separated DNS views to query (default: all)")
 	flags.StringVar(&networksStr, "networks", "", "Comma-separated CIDRs to scope network, range, DHCP, and IPAM collectors")
 	flags.StringVar(&ipv4NetworksStr, "ipv4-networks", "", "Comma-separated CIDRs to scope the IPv4 address collector")
+	flags.BoolVar(&ipv4AddressInfo, "ipv4-address-info", false, "Expose high-cardinality info metrics for occupied IPv4 addresses")
 	flags.StringVar(&zonesStr, "zones", "", "Comma-separated DNS zones to scope allrecords and zones collectors")
 	flags.StringVar(&upgradeTypesStr, "upgrade-status-types", "", "Comma-separated upgrade status types")
 	flags.BoolVar(&showVersion, "version", false, "Display application version")
@@ -130,6 +132,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	cfg.DNSViews = chooseCSV(dnsViewsStr, config.GetDNSViews(), cfg.DNSViews)
 	cfg.Networks = chooseCSV(networksStr, config.GetNetworks(), cfg.Networks)
 	cfg.IPv4Networks = chooseCSV(ipv4NetworksStr, config.GetIPv4Networks(), cfg.IPv4Networks)
+	cfg.IPv4AddressInfo = ipv4AddressInfo || config.GetIPv4AddressInfo()
 	cfg.Zones = chooseCSV(zonesStr, config.GetZones(), cfg.Zones)
 	cfg.UpgradeStatusTypes = chooseCSV(upgradeTypesStr, config.GetUpgradeStatusTypes(), cfg.UpgradeStatusTypes)
 
@@ -179,6 +182,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		"disabled_modules", len(cfg.DisabledModules),
 		"networks", len(cfg.Networks),
 		"ipv4_networks", len(cfg.IPv4Networks),
+		"ipv4_address_info", cfg.IPv4AddressInfo,
 		"zones", len(cfg.Zones),
 	)
 
