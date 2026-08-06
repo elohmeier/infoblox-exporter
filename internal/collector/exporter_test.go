@@ -383,7 +383,7 @@ func TestExporterUsesIndependentNetworkAndInventoryScopes(t *testing.T) {
 			if got := query.Get("network"); got != "" {
 				t.Fatalf("inventory must not use the expensive network expansion filter: %q", got)
 			}
-			if query.Get("status") != "USED" || query.Get("ip_address>") != "192.0.1.255" || query.Get("ip_address<") != "192.0.3.0" {
+			if query.Get("status") != "USED" || query.Get("ip_address>") != "192.0.2.0" || query.Get("ip_address<") != "192.0.2.255" {
 				t.Fatalf("unexpected inventory query: %s", query.Encode())
 			}
 

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"testing"
@@ -38,20 +39,14 @@ func TestMergedInventoryIntervalsNormalizesAndMerges(t *testing.T) {
 	}
 }
 
-func TestInventoryBoundsHandleIPv4Edges(t *testing.T) {
+func TestInventoryBoundsStayInsideInterval(t *testing.T) {
 	params := url.Values{}
-	setInventoryBounds(params, inventoryInterval{start: 0, end: ^uint32(0)})
-	if len(params) != 0 {
-		t.Fatalf("the full IPv4 interval should not add bounds: %v", params)
-	}
-	setInventoryBounds(params, inventoryInterval{start: 0, end: 0})
-	if params.Get("ip_address>") != "" || params.Get("ip_address<") != "0.0.0.1" {
-		t.Fatalf("unexpected lower-edge bounds: %v", params)
-	}
-	params = url.Values{}
-	setInventoryBounds(params, inventoryInterval{start: ^uint32(0), end: ^uint32(0)})
-	if params.Get("ip_address>") != "255.255.255.254" || params.Get("ip_address<") != "" {
-		t.Fatalf("unexpected upper-edge bounds: %v", params)
+	setInventoryBounds(params, inventoryInterval{
+		start: ipv4Uint32(netip.MustParseAddr("192.0.2.0")),
+		end:   ipv4Uint32(netip.MustParseAddr("192.0.2.255")),
+	})
+	if params.Get("ip_address>") != "192.0.2.0" || params.Get("ip_address<") != "192.0.2.255" {
+		t.Fatalf("unexpected inventory bounds: %v", params)
 	}
 }
 
@@ -119,7 +114,7 @@ func TestIPv4InventorySelectsNetworksByEAAndName(t *testing.T) {
 			if query.Get("network_view") != "blue" || query.Get("status") != "USED" || query.Get("names~") != "(?i)server" {
 				t.Fatalf("unexpected IPv4 inventory query: %s", r.URL.RawQuery)
 			}
-			if query.Get("ip_address>") != "198.51.99.255" || query.Get("ip_address<") != "198.51.101.0" {
+			if query.Get("ip_address>") != "198.51.100.0" || query.Get("ip_address<") != "198.51.100.255" {
 				t.Fatalf("unexpected IPv4 inventory bounds: %s", r.URL.RawQuery)
 			}
 			writeResult(t, w, []map[string]interface{}{

@@ -345,12 +345,10 @@ func uniqueBoundedIntervals(queries []inventoryQuery) int {
 }
 
 func setInventoryBounds(params url.Values, interval inventoryInterval) {
-	if interval.start > 0 {
-		params.Set("ip_address>", ipv4Addr(interval.start-1).String())
-	}
-	if interval.end < ^uint32(0) {
-		params.Set("ip_address<", ipv4Addr(interval.end+1).String())
-	}
+	// In WAPI query syntax, the key suffixes produce inclusive >= and <= searches.
+	// Both operands must remain within a managed network or the appliance rejects the query.
+	params.Set("ip_address>", ipv4Addr(interval.start).String())
+	params.Set("ip_address<", ipv4Addr(interval.end).String())
 }
 
 func parseIPv4Prefix(value string) (netip.Prefix, error) {
