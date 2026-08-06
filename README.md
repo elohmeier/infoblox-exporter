@@ -8,7 +8,7 @@
 
 Prometheus exporter for selected Infoblox NIOS WAPI inventory and utilization data.
 
-The exporter uses read-only WAPI requests with paging enabled. A background scheduler refreshes data into an in-process cache, and Prometheus scrapes read that cache only. IPv4 address data is aggregated by network/view/status/type/usage by default; an explicit opt-in can additionally expose metadata for occupied addresses. DNS `allrecords` are exported both as aggregate counts and per-record info/TTL metrics.
+The exporter uses read-only WAPI requests with paging enabled. A background scheduler refreshes data into an in-process cache, and Prometheus scrapes read that cache only. The bounded `ipv4inventory` collector streams occupied address records page by page instead of expanding every address in each network. DNS `allrecords` are exported both as aggregate counts and per-record info/TTL metrics.
 
 ## Quick Start
 
@@ -16,8 +16,8 @@ The exporter uses read-only WAPI requests with paging enabled. A background sche
 export INFOBLOX_USERNAME='<readonly-user>'
 export INFOBLOX_PASSWORD='<password>'
 go run . -url https://gm.example.com/wapi/v2.13.7 \
-  -networks 10.1.216.0/24 \
-  -ipv4-networks 10.1.216.0/24
+  -networks 192.0.2.0/24 \
+  -ipv4-inventory-networks 192.0.2.0/24
 ```
 
 The exporter listens on `:9717` and exposes `/metrics`, `/health`, `/readyz`, and `/debug/cache`.
@@ -40,10 +40,12 @@ Core metrics include:
 - `infoblox_network_utilization_ratio{network,network_view}`
 - `infoblox_network_dhcp_utilization_ratio{network,network_view}`
 - `infoblox_range_dhcp_utilization_ratio{network,network_view,start_addr,end_addr}`
-- `infoblox_ipv4address_status_count{network,network_view,status}`
-- `infoblox_ipv4address_type_count{network,network_view,type}`
-- `infoblox_ipv4address_usage_count{network,network_view,usage}`
-- `infoblox_ipv4address_info{ip_address,network,network_view,status,names,types,usage}` (opt-in)
+- `infoblox_ipv4inventory_info{ip_address,network,network_view,status,names,types,usage}`
+- `infoblox_ipv4inventory_address_count{network,network_view}`
+- `infoblox_ipv4inventory_collector_configured`
+- `infoblox_ipv4inventory_objects{stage}`
+- `infoblox_ipv4inventory_selected_networks`
+- `infoblox_ipv4inventory_scan_ranges`
 - `infoblox_member_service_status{member,service,status}`
 - `infoblox_restart_service_status{member,service,status}`
 - `infoblox_service_restart_status_count{parent,grouped,state}`
@@ -80,8 +82,13 @@ Flags follow the same style as the neighboring NetScaler exporter:
 | `-network-views` | `INFOBLOX_NETWORK_VIEWS` | all | Comma-separated network views for IPAM/DHCP collectors. |
 | `-dns-views` | `INFOBLOX_DNS_VIEWS` | all | Comma-separated DNS views. |
 | `-networks` | `INFOBLOX_NETWORKS` | none | Comma-separated CIDRs for network, range, DHCP statistics, and IPAM statistics collectors. |
-| `-ipv4-networks` | `INFOBLOX_IPV4_NETWORKS` | none | Comma-separated CIDRs for the IPv4 address collector. |
-| `-ipv4-address-info` | `INFOBLOX_IPV4_ADDRESS_INFO` | `false` | Expose a high-cardinality `infoblox_ipv4address_info` series for every occupied address in the configured IPv4 networks. |
+| `-ipv4-inventory-networks` | `INFOBLOX_IPV4_INVENTORY_NETWORKS` | none | Comma-separated network CIDRs selected for IPv4 inventory. |
+| `-ipv4-inventory-scan-ranges` | `INFOBLOX_IPV4_INVENTORY_SCAN_RANGES` | none | Optional CIDRs used as broader WAPI address query intervals. Selected networks are still filtered exactly in the exporter. |
+| `-ipv4-inventory-name-regex` | `INFOBLOX_IPV4_INVENTORY_NAME_REGEX` | none | Optional WAPI regular expression applied to the `names` field. |
+| `-ipv4-inventory-network-ea` | `INFOBLOX_IPV4_INVENTORY_NETWORK_EA` | none | Select networks by extensible attribute in `name=value` form. |
+| `-ipv4-inventory-page-size` | `INFOBLOX_IPV4_INVENTORY_PAGE_SIZE` | `2000` | WAPI page size used by network discovery and address inventory reads. |
+| `-ipv4-inventory-max-addresses` | `INFOBLOX_IPV4_INVENTORY_MAX_ADDRESSES` | `100000` | Hard limit on unique occupied addresses retained by a refresh. Exceeding it fails the refresh and preserves the previous cache. |
+| `-ipv4-inventory-timeout` | `INFOBLOX_IPV4_INVENTORY_TIMEOUT` | `5m` | Collector-specific timeout for IPv4 inventory. The full `-refresh-timeout` still applies. |
 | `-zones` | `INFOBLOX_ZONES` | none | Comma-separated DNS zones for `allrecords` and `zones`. |
 | `-upgrade-status-types` | `INFOBLOX_UPGRADE_STATUS_TYPES` | `GRID,GROUP,VNODE,PNODE` | Upgrade status object types to query. |
 
@@ -89,19 +96,21 @@ Credentials are read from `INFOBLOX_USERNAME` and `INFOBLOX_PASSWORD`.
 
 `/metrics` returns HTTP 200 even before the first successful refresh, but it only exposes exporter/cache self-metrics until cached Infoblox data exists. Use `/readyz` for readiness; it returns HTTP 503 until the cache has been refreshed successfully and is not stale.
 
-Disable collectors by these names: `network`, `range`, `ipv4address`, `member`, `restartservicestatus`, `servicerestart`, `capacity`, `license`, `upgradestatus`, `dhcpstatistics`, `ipamstatistics`, `dhcpfailover`, `allrecords`, `zones`, `dtc`, `threatprotection`.
+Disable collectors by these names: `network`, `range`, `ipv4inventory`, `member`, `restartservicestatus`, `servicerestart`, `capacity`, `license`, `upgradestatus`, `dhcpstatistics`, `ipamstatistics`, `dhcpfailover`, `allrecords`, `zones`, `dtc`, `threatprotection`.
 
 ## Collector Scope
 
 The `network`, `range`, and `member` collectors can query all objects in the configured network views. If `-networks` is set, network and range collection is restricted to those CIDRs.
 
-The `ipv4address` collector requires explicit `-ipv4-networks` entries. This avoids accidentally walking very large IPAM spaces without restricting the scope of the other network-based collectors.
+The `ipv4inventory` collector remains inactive unless at least one inventory network, scan range, name regex, or network EA selector is configured. There is no accidental empty global scrape.
 
-Per-address metadata is disabled by default even when IPv4 networks are configured. Enable `-ipv4-address-info` (or `INFOBLOX_IPV4_ADDRESS_INFO=true`) to emit one `infoblox_ipv4address_info` gauge for each address whose WAPI status is `USED`. The `names`, `types`, and `usage` arrays are sorted, deduplicated, and joined with commas. This metric exposes hostname inventory and can create many Prometheus series, so keep `-ipv4-networks` narrowly scoped.
+Inventory requests always apply `status=USED`, address bounds, and the optional name regex in WAPI. Explicit networks and EA-selected networks are normalized, overlapping or adjacent CIDRs are merged into scan intervals, and returned records are then filtered against the exact selected network/view set. Pages are processed immediately; only the compact deduplicated result is cached. The `names`, `types`, and `usage` arrays are sorted, deduplicated, and joined with commas.
+
+When `-ipv4-inventory-scan-ranges` is set, those ranges control the WAPI query intervals while `-ipv4-inventory-networks` and `-ipv4-inventory-network-ea` remain exact local selectors. Scan ranges alone inventory every occupied address in those ranges. A name regex alone is allowed to perform an unbounded name-filtered search; the address cap remains mandatory protection.
 
 ### Migrating IPv4 collector configuration
 
-`-networks` and `INFOBLOX_NETWORKS` no longer configure the `ipv4address` collector. Existing users must copy the CIDRs they want to inspect to `-ipv4-networks` or `INFOBLOX_IPV4_NETWORKS`. Keep the original network option as well when the network, range, DHCP statistics, and IPAM statistics collectors should remain restricted to the same CIDRs.
+The old `ipv4address` collector, `-ipv4-networks`, `INFOBLOX_IPV4_NETWORKS`, `-ipv4-address-info`, `INFOBLOX_IPV4_ADDRESS_INFO`, and all `infoblox_ipv4address_*` metrics have been removed. Move the desired CIDRs to `-ipv4-inventory-networks` or `INFOBLOX_IPV4_INVENTORY_NETWORKS`. Keep `-networks` as well when the network, range, DHCP statistics, and IPAM statistics collectors should remain restricted to the same CIDRs.
 
 The `allrecords` collector emits one `infoblox_dns_record_info` metric per DNS record plus aggregate counts. It requires explicit `-zones` entries because WAPI requires a zone search parameter for allrecords searches. Use `-dns-views` when you need to restrict DNS views.
 
@@ -120,8 +129,8 @@ docker run --rm -p 9717:9717 \
   -e INFOBLOX_PASSWORD='<password>' \
   ghcr.io/elohmeier/infoblox-exporter:latest \
   -url https://gm.example.com/wapi/v2.13.7 \
-  -networks 10.1.216.0/24 \
-  -ipv4-networks 10.1.216.0/24
+  -networks 192.0.2.0/24 \
+  -ipv4-inventory-networks 192.0.2.0/24
 ```
 
 ## Build

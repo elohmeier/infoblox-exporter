@@ -1,37 +1,49 @@
 package config
 
 import (
+	"errors"
+	"fmt"
+	"net/netip"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
 
 type Config struct {
-	Labels             map[string]string
-	DisabledModules    []string
-	Timeout            time.Duration
-	RefreshInterval    time.Duration
-	RefreshTimeout     time.Duration
-	MaxStale           time.Duration
-	PageSize           int
-	NetworkViews       []string
-	DNSViews           []string
-	Networks           []string
-	IPv4Networks       []string
-	IPv4AddressInfo    bool
-	Zones              []string
-	UpgradeStatusTypes []string
+	Labels                    map[string]string
+	DisabledModules           []string
+	Timeout                   time.Duration
+	RefreshInterval           time.Duration
+	RefreshTimeout            time.Duration
+	MaxStale                  time.Duration
+	PageSize                  int
+	NetworkViews              []string
+	DNSViews                  []string
+	Networks                  []string
+	IPv4InventoryNetworks     []string
+	IPv4InventoryScanRanges   []string
+	IPv4InventoryNameRegex    string
+	IPv4InventoryNetworkEA    string
+	IPv4InventoryPageSize     int
+	IPv4InventoryMaxAddresses int
+	IPv4InventoryTimeout      time.Duration
+	Zones                     []string
+	UpgradeStatusTypes        []string
 }
 
 func Default() Config {
 	return Config{
-		Labels:          map[string]string{},
-		Timeout:         30 * time.Second,
-		RefreshInterval: 5 * time.Minute,
-		RefreshTimeout:  2 * time.Minute,
-		MaxStale:        15 * time.Minute,
-		PageSize:        1000,
+		Labels:                    map[string]string{},
+		Timeout:                   30 * time.Second,
+		RefreshInterval:           5 * time.Minute,
+		RefreshTimeout:            2 * time.Minute,
+		MaxStale:                  15 * time.Minute,
+		PageSize:                  1000,
+		IPv4InventoryPageSize:     2000,
+		IPv4InventoryMaxAddresses: 100000,
+		IPv4InventoryTimeout:      5 * time.Minute,
 		UpgradeStatusTypes: []string{
 			"GRID",
 			"GROUP",
@@ -39,6 +51,48 @@ func Default() Config {
 			"PNODE",
 		},
 	}
+}
+
+func (c Config) Validate() error {
+	for name, prefixes := range map[string][]string{
+		"ipv4-inventory-networks":    c.IPv4InventoryNetworks,
+		"ipv4-inventory-scan-ranges": c.IPv4InventoryScanRanges,
+	} {
+		for _, value := range prefixes {
+			prefix, err := netip.ParsePrefix(value)
+			if err != nil || !prefix.Addr().Is4() {
+				return fmt.Errorf("%s contains invalid IPv4 CIDR %q", name, value)
+			}
+		}
+	}
+	if c.IPv4InventoryNameRegex != "" {
+		if _, err := regexp.Compile(c.IPv4InventoryNameRegex); err != nil {
+			return fmt.Errorf("ipv4-inventory-name-regex is invalid: %w", err)
+		}
+	}
+	if c.IPv4InventoryNetworkEA != "" {
+		parts := strings.SplitN(c.IPv4InventoryNetworkEA, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return errors.New("ipv4-inventory-network-ea must use non-empty name=value syntax")
+		}
+	}
+	if c.IPv4InventoryPageSize <= 0 {
+		return errors.New("ipv4-inventory-page-size must be greater than zero")
+	}
+	if c.IPv4InventoryMaxAddresses <= 0 {
+		return errors.New("ipv4-inventory-max-addresses must be greater than zero")
+	}
+	if c.IPv4InventoryTimeout <= 0 {
+		return errors.New("ipv4-inventory-timeout must be greater than zero")
+	}
+	return nil
+}
+
+func (c Config) IPv4InventoryConfigured() bool {
+	return len(c.IPv4InventoryNetworks) > 0 ||
+		len(c.IPv4InventoryScanRanges) > 0 ||
+		c.IPv4InventoryNameRegex != "" ||
+		c.IPv4InventoryNetworkEA != ""
 }
 
 func (c Config) IsModuleDisabled(name string) bool {
@@ -115,12 +169,32 @@ func GetNetworks() string {
 	return os.Getenv("INFOBLOX_NETWORKS")
 }
 
-func GetIPv4Networks() string {
-	return os.Getenv("INFOBLOX_IPV4_NETWORKS")
+func GetIPv4InventoryNetworks() string {
+	return os.Getenv("INFOBLOX_IPV4_INVENTORY_NETWORKS")
 }
 
-func GetIPv4AddressInfo() bool {
-	return parseBool(os.Getenv("INFOBLOX_IPV4_ADDRESS_INFO"))
+func GetIPv4InventoryScanRanges() string {
+	return os.Getenv("INFOBLOX_IPV4_INVENTORY_SCAN_RANGES")
+}
+
+func GetIPv4InventoryNameRegex() string {
+	return os.Getenv("INFOBLOX_IPV4_INVENTORY_NAME_REGEX")
+}
+
+func GetIPv4InventoryNetworkEA() string {
+	return os.Getenv("INFOBLOX_IPV4_INVENTORY_NETWORK_EA")
+}
+
+func GetIPv4InventoryPageSize() string {
+	return os.Getenv("INFOBLOX_IPV4_INVENTORY_PAGE_SIZE")
+}
+
+func GetIPv4InventoryMaxAddresses() string {
+	return os.Getenv("INFOBLOX_IPV4_INVENTORY_MAX_ADDRESSES")
+}
+
+func GetIPv4InventoryTimeout() string {
+	return os.Getenv("INFOBLOX_IPV4_INVENTORY_TIMEOUT")
 }
 
 func GetZones() string {

@@ -69,6 +69,11 @@ func TestRunVersionAndParseError(t *testing.T) {
 	if code := run([]string{"-not-a-real-flag"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 2 {
 		t.Fatalf("unexpected parse error code: %d", code)
 	}
+	for _, removed := range [][]string{{"-ipv4-networks", "192.0.2.0/24"}, {"-ipv4-address-info"}} {
+		if code := run(removed, &bytes.Buffer{}, &bytes.Buffer{}); code != 2 {
+			t.Fatalf("removed IPv4 flag %q should be rejected, got code %d", removed[0], code)
+		}
+	}
 }
 
 func TestRunValidationFailures(t *testing.T) {
@@ -98,6 +103,22 @@ func TestRunValidationFailures(t *testing.T) {
 				"INFOBLOX_USERNAME": "user",
 				"INFOBLOX_PASSWORD": "pass",
 				"INFOBLOX_TIMEOUT":  "invalid",
+			},
+		},
+		{
+			name: "invalid inventory CIDR",
+			args: []string{"-url", "http://gm.example.test/wapi/v2.13.7", "-ipv4-inventory-networks", "bad"},
+			env: map[string]string{
+				"INFOBLOX_USERNAME": "user",
+				"INFOBLOX_PASSWORD": "pass",
+			},
+		},
+		{
+			name: "invalid inventory regex",
+			args: []string{"-url", "http://gm.example.test/wapi/v2.13.7", "-ipv4-inventory-name-regex", "["},
+			env: map[string]string{
+				"INFOBLOX_USERNAME": "user",
+				"INFOBLOX_PASSWORD": "pass",
 			},
 		},
 		{
@@ -131,8 +152,8 @@ func TestRunServerClosed(t *testing.T) {
 	t.Setenv("INFOBLOX_DISABLED_MODULES", "dtc")
 	t.Setenv("INFOBLOX_NETWORK_VIEWS", "default")
 	t.Setenv("INFOBLOX_DNS_VIEWS", "default")
-	t.Setenv("INFOBLOX_NETWORKS", "10.1.216.0/24")
-	t.Setenv("INFOBLOX_IPV4_NETWORKS", "10.1.217.0/24")
+	t.Setenv("INFOBLOX_NETWORKS", "192.0.2.0/24")
+	t.Setenv("INFOBLOX_IPV4_INVENTORY_NETWORKS", "198.51.100.0/24")
 	t.Setenv("INFOBLOX_ZONES", "example.test")
 	t.Setenv("INFOBLOX_UPGRADE_STATUS_TYPES", "GRID")
 
@@ -160,9 +181,14 @@ func TestRunServerClosed(t *testing.T) {
 		"-ca-file", caPath,
 		"-network-views", "default",
 		"-dns-views", "default",
-		"-networks", "10.1.216.0/24",
-		"-ipv4-networks", "10.1.218.0/24",
-		"-ipv4-address-info",
+		"-networks", "192.0.2.0/24",
+		"-ipv4-inventory-networks", "203.0.113.1/24",
+		"-ipv4-inventory-scan-ranges", "203.0.113.0/24",
+		"-ipv4-inventory-name-regex", "server",
+		"-ipv4-inventory-network-ea", "Inventory=servers",
+		"-ipv4-inventory-page-size", "123",
+		"-ipv4-inventory-max-addresses", "321",
+		"-ipv4-inventory-timeout", "4m",
 		"-zones", "example.test",
 		"-upgrade-status-types", "GRID",
 		"-debug",
@@ -170,11 +196,11 @@ func TestRunServerClosed(t *testing.T) {
 	if code := run(args, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("unexpected code: %d", code)
 	}
-	if !reflect.DeepEqual(exporterConfig.IPv4Networks, []string{"10.1.218.0/24"}) {
-		t.Fatalf("unexpected IPv4 networks: %#v", exporterConfig.IPv4Networks)
+	if !reflect.DeepEqual(exporterConfig.IPv4InventoryNetworks, []string{"203.0.113.1/24"}) || !reflect.DeepEqual(exporterConfig.IPv4InventoryScanRanges, []string{"203.0.113.0/24"}) {
+		t.Fatalf("unexpected IPv4 inventory scope: %#v %#v", exporterConfig.IPv4InventoryNetworks, exporterConfig.IPv4InventoryScanRanges)
 	}
-	if !exporterConfig.IPv4AddressInfo {
-		t.Fatalf("IPv4 address info should be enabled")
+	if exporterConfig.IPv4InventoryNameRegex != "server" || exporterConfig.IPv4InventoryNetworkEA != "Inventory=servers" || exporterConfig.IPv4InventoryPageSize != 123 || exporterConfig.IPv4InventoryMaxAddresses != 321 || exporterConfig.IPv4InventoryTimeout != 4*time.Minute {
+		t.Fatalf("unexpected IPv4 inventory configuration: %#v", exporterConfig)
 	}
 }
 
@@ -267,7 +293,7 @@ func TestNewMux(t *testing.T) {
 func TestNewMuxWithCacheEndpoints(t *testing.T) {
 	cfg := config.Default()
 	cfg.DisabledModules = []string{
-		"network", "range", "ipv4address", "member", "restartservicestatus", "servicerestart",
+		"network", "range", "ipv4inventory", "member", "restartservicestatus", "servicerestart",
 		"capacity", "license", "upgradestatus", "dhcpstatistics", "ipamstatistics",
 		"dhcpfailover", "allrecords", "zones", "dtc", "threatprotection",
 	}
@@ -387,8 +413,13 @@ func clearInfobloxEnv(t *testing.T) {
 		"INFOBLOX_NETWORK_VIEWS",
 		"INFOBLOX_DNS_VIEWS",
 		"INFOBLOX_NETWORKS",
-		"INFOBLOX_IPV4_NETWORKS",
-		"INFOBLOX_IPV4_ADDRESS_INFO",
+		"INFOBLOX_IPV4_INVENTORY_NETWORKS",
+		"INFOBLOX_IPV4_INVENTORY_SCAN_RANGES",
+		"INFOBLOX_IPV4_INVENTORY_NAME_REGEX",
+		"INFOBLOX_IPV4_INVENTORY_NETWORK_EA",
+		"INFOBLOX_IPV4_INVENTORY_PAGE_SIZE",
+		"INFOBLOX_IPV4_INVENTORY_MAX_ADDRESSES",
+		"INFOBLOX_IPV4_INVENTORY_TIMEOUT",
 		"INFOBLOX_ZONES",
 		"INFOBLOX_UPGRADE_STATUS_TYPES",
 	} {

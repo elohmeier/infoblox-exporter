@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,7 +24,7 @@ import (
 func TestCollectReportsFailure(t *testing.T) {
 	cfg := config.Default()
 	cfg.DisabledModules = []string{
-		"range", "ipv4address", "member", "restartservicestatus", "servicerestart",
+		"range", "ipv4inventory", "member", "restartservicestatus", "servicerestart",
 		"capacity", "license", "upgradestatus", "dhcpstatistics", "ipamstatistics",
 		"dhcpfailover", "allrecords", "zones", "dtc", "threatprotection",
 	}
@@ -46,9 +47,9 @@ func TestCollectReportsFailure(t *testing.T) {
 	}
 }
 
-func TestCollectIPv4Unconfigured(t *testing.T) {
+func TestCollectIPv4InventoryUnconfigured(t *testing.T) {
 	cfg := config.Default()
-	cfg.Networks = []string{"10.0.0.0/24"}
+	cfg.Networks = []string{"192.0.2.0/24"}
 	cfg.DisabledModules = []string{
 		"network", "range", "member", "restartservicestatus", "servicerestart",
 		"capacity", "license", "upgradestatus", "dhcpstatistics", "ipamstatistics",
@@ -68,8 +69,8 @@ func TestCollectIPv4Unconfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value := metricValue(t, families, "infoblox_ipv4address_collector_configured"); value != 0 {
-		t.Fatalf("IPv4 collector configured = %f, want 0", value)
+	if value := metricValue(t, families, "infoblox_ipv4inventory_collector_configured"); value != 0 {
+		t.Fatalf("IPv4 inventory collector configured = %f, want 0", value)
 	}
 }
 
@@ -102,14 +103,14 @@ func TestCollectorPrimaryErrorPaths(t *testing.T) {
 			return e.collectRanges(ctx, ch)
 		}},
 		{
-			name: "ipv4address",
+			name: "ipv4inventory",
 			cfg: func() config.Config {
 				cfg := config.Default()
-				cfg.IPv4Networks = []string{"10.0.0.0/24"}
+				cfg.IPv4InventoryNetworks = []string{"192.0.2.0/24"}
 				return cfg
 			},
 			call: func(ctx context.Context, e *Exporter, ch chan prometheus.Metric) error {
-				return e.collectIPv4Addresses(ctx, ch)
+				return e.collectIPv4Inventory(ctx, ch)
 			},
 		},
 		{name: "member", call: func(ctx context.Context, e *Exporter, ch chan prometheus.Metric) error {
@@ -179,7 +180,7 @@ func TestCollectorPrimaryErrorPaths(t *testing.T) {
 func TestCollectorScopedErrorPaths(t *testing.T) {
 	t.Run("network", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.Networks = []string{"10.0.0.0/24"}
+		cfg.Networks = []string{"192.0.2.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "failed", http.StatusInternalServerError)
 		})
@@ -191,7 +192,7 @@ func TestCollectorScopedErrorPaths(t *testing.T) {
 
 	t.Run("range", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.Networks = []string{"10.0.0.0/24"}
+		cfg.Networks = []string{"192.0.2.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "failed", http.StatusInternalServerError)
 		})
@@ -203,7 +204,7 @@ func TestCollectorScopedErrorPaths(t *testing.T) {
 
 	t.Run("dhcp network refs", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.Networks = []string{"10.0.0.0/24"}
+		cfg.Networks = []string{"192.0.2.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "failed", http.StatusInternalServerError)
 		})
@@ -215,7 +216,7 @@ func TestCollectorScopedErrorPaths(t *testing.T) {
 
 	t.Run("dhcp range refs", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.Networks = []string{"10.0.0.0/24"}
+		cfg.Networks = []string{"192.0.2.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/wapi/v2.13.7/network":
@@ -234,7 +235,7 @@ func TestCollectorScopedErrorPaths(t *testing.T) {
 
 	t.Run("ipam", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.Networks = []string{"10.0.0.0/24"}
+		cfg.Networks = []string{"192.0.2.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "failed", http.StatusInternalServerError)
 		})
@@ -313,7 +314,7 @@ func TestCollectorSecondaryErrorPaths(t *testing.T) {
 		exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/wapi/v2.13.7/network":
-				writeResult(t, w, []map[string]interface{}{{"_ref": "network/ref", "network": "10.0.0.0/24"}})
+				writeResult(t, w, []map[string]interface{}{{"_ref": "network/ref", "network": "192.0.2.0/24"}})
 			case "/wapi/v2.13.7/range":
 				writeResult(t, w, []map[string]interface{}{})
 			case "/wapi/v2.13.7/dhcp:statistics":
@@ -333,11 +334,11 @@ func TestCollectorsWithoutNetworkScope(t *testing.T) {
 	exporter, cleanup := newCoverageExporter(t, config.Default(), func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/wapi/v2.13.7/network":
-			writeResult(t, w, []map[string]interface{}{{"_ref": "network/ref", "network": "10.0.0.0/24"}})
+			writeResult(t, w, []map[string]interface{}{{"_ref": "network/ref", "network": "192.0.2.0/24"}})
 		case "/wapi/v2.13.7/range":
-			writeResult(t, w, []map[string]interface{}{{"_ref": "range/ref", "network": "10.0.0.0/24"}})
+			writeResult(t, w, []map[string]interface{}{{"_ref": "range/ref", "network": "192.0.2.0/24"}})
 		case "/wapi/v2.13.7/ipam:statistics":
-			writeObject(t, w, map[string]interface{}{"network": "10.0.0.0/24", "network_view": "default"})
+			writeObject(t, w, map[string]interface{}{"network": "192.0.2.0/24", "network_view": "default"})
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -468,11 +469,11 @@ func TestCollectorScopedBranches(t *testing.T) {
 
 	t.Run("dhcp statistics reference reads are not paged", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.Networks = []string{"10.0.0.0/24"}
+		cfg.Networks = []string{"192.0.2.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/wapi/v2.13.7/network":
-				writeResult(t, w, []map[string]interface{}{{"_ref": "network/ref", "network": "10.0.0.0/24"}})
+				writeResult(t, w, []map[string]interface{}{{"_ref": "network/ref", "network": "192.0.2.0/24"}})
 			case "/wapi/v2.13.7/range":
 				writeResult(t, w, []map[string]interface{}{})
 			case "/wapi/v2.13.7/dhcp:statistics":
@@ -496,9 +497,9 @@ func TestCollectorScopedBranches(t *testing.T) {
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/wapi/v2.13.7/network":
-				writeResult(t, w, []map[string]interface{}{{"_ref": "network/slow", "network": "10.0.0.0/24"}})
+				writeResult(t, w, []map[string]interface{}{{"_ref": "network/slow", "network": "192.0.2.0/24"}})
 			case "/wapi/v2.13.7/range":
-				writeResult(t, w, []map[string]interface{}{{"_ref": "range/fast", "network": "10.0.0.0/24"}})
+				writeResult(t, w, []map[string]interface{}{{"_ref": "range/fast", "network": "192.0.2.0/24"}})
 			case "/wapi/v2.13.7/dhcp:statistics":
 				if r.URL.Query().Get("statistics_object") == "network/slow" {
 					time.Sleep(90 * time.Millisecond)
@@ -514,7 +515,7 @@ func TestCollectorScopedBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("dhcp statistics stops cleanly at collector deadline", func(t *testing.T) {
+	t.Run("dhcp statistics fails at collector deadline", func(t *testing.T) {
 		cfg := config.Default()
 		cfg.Timeout = 30 * time.Millisecond
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, r *http.Request) {
@@ -524,7 +525,7 @@ func TestCollectorScopedBranches(t *testing.T) {
 				for i := 0; i < 20; i++ {
 					networks = append(networks, map[string]interface{}{
 						"_ref":    fmt.Sprintf("network/slow-%d", i),
-						"network": fmt.Sprintf("10.0.%d.0/24", i),
+						"network": fmt.Sprintf("192.0.2.%d/32", i),
 					})
 				}
 				writeResult(t, w, networks)
@@ -538,8 +539,10 @@ func TestCollectorScopedBranches(t *testing.T) {
 			}
 		})
 		defer cleanup()
-		if err := exporter.collectDHCPStatistics(context.Background(), metricBuffer()); err != nil {
-			t.Fatal(err)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Millisecond)
+		defer cancel()
+		if err := exporter.collectDHCPStatistics(ctx, metricBuffer()); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected collector deadline error, got %v", err)
 		}
 	})
 
@@ -622,16 +625,16 @@ func TestCollectorScopedBranches(t *testing.T) {
 }
 
 func TestCollectorSuccessBranches(t *testing.T) {
-	t.Run("ipv4 empty types", func(t *testing.T) {
+	t.Run("ipv4 inventory empty labels", func(t *testing.T) {
 		cfg := config.Default()
-		cfg.IPv4Networks = []string{"10.0.0.0/24"}
+		cfg.IPv4InventoryNetworks = []string{"192.0.2.0/24"}
 		exporter, cleanup := newCoverageExporter(t, cfg, func(w http.ResponseWriter, _ *http.Request) {
 			writeResult(t, w, []map[string]interface{}{
-				{"ip_address": "10.0.0.1", "status": "USED"},
+				{"ip_address": "192.0.2.1", "network": "192.0.2.0/24", "network_view": "default", "status": "USED"},
 			})
 		})
 		defer cleanup()
-		if err := exporter.collectIPv4Addresses(context.Background(), metricBuffer()); err != nil {
+		if err := exporter.collectIPv4Inventory(context.Background(), metricBuffer()); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -771,10 +774,10 @@ func TestCollectorHelpers(t *testing.T) {
 		t.Fatalf("unexpected first string: %s", got)
 	}
 
-	if objects := networkStatisticsObjects([]model.Network{{}, {Ref: "network/ref", Network: "10.0.0.0/24"}}); len(objects) != 1 {
+	if objects := networkStatisticsObjects([]model.Network{{}, {Ref: "network/ref", Network: "192.0.2.0/24"}}); len(objects) != 1 {
 		t.Fatalf("unexpected network objects: %#v", objects)
 	}
-	if objects := rangeStatisticsObjects([]model.Range{{}, {Ref: "range/ref", Network: "10.0.0.0/24"}}); len(objects) != 1 || objects[0].name != "10.0.0.0/24" {
+	if objects := rangeStatisticsObjects([]model.Range{{}, {Ref: "range/ref", Network: "192.0.2.0/24"}}); len(objects) != 1 || objects[0].name != "192.0.2.0/24" {
 		t.Fatalf("unexpected range objects: %#v", objects)
 	}
 }

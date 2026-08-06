@@ -130,11 +130,48 @@ func (c *Client) Hostname() string {
 }
 
 func FetchAll[T any](ctx context.Context, c *Client, object string, params url.Values) ([]T, error) {
-	raw, err := c.FetchAllRaw(ctx, object, params)
+	var all []T
+	err := FetchPages[T](ctx, c, object, params, func(page []T) error {
+		all = append(all, page...)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return decodeRawItems[T](raw)
+	return all, nil
+}
+
+// FetchPages visits one decoded WAPI page at a time so callers can process
+// large result sets without retaining raw responses or all decoded objects.
+func FetchPages[T any](ctx context.Context, c *Client, object string, params url.Values, visit func([]T) error) error {
+	query := cloneValues(params)
+	query.Set("_paging", "1")
+	query.Set("_return_as_object", "1")
+	if query.Get("_max_results") == "" {
+		query.Set("_max_results", strconv.Itoa(c.pageSize))
+	}
+
+	for {
+		var raw json.RawMessage
+		if err := c.get(ctx, object, query, &raw); err != nil {
+			return err
+		}
+		result, nextPageID, err := decodePage(raw)
+		if err != nil {
+			return err
+		}
+		page, err := decodeRawItems[T](result)
+		if err != nil {
+			return err
+		}
+		if err := visit(page); err != nil {
+			return err
+		}
+		if nextPageID == "" {
+			return nil
+		}
+		query = url.Values{"_page_id": []string{nextPageID}}
+	}
 }
 
 func FetchAllUnpaged[T any](ctx context.Context, c *Client, object string, params url.Values) ([]T, error) {

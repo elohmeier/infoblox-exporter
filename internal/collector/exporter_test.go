@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -23,8 +24,8 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 		case "/wapi/v2.13.7/network":
 			writeResult(t, w, []map[string]interface{}{
 				{
-					"_ref":                    "network/ref:10.1.216.0/24/default",
-					"network":                 "10.1.216.0/24",
+					"_ref":                    "network/ref:192.0.2.0/24/default",
+					"network":                 "192.0.2.0/24",
 					"network_view":            "default",
 					"utilization":             500,
 					"dhcp_utilization":        250,
@@ -35,11 +36,11 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 		case "/wapi/v2.13.7/range":
 			writeResult(t, w, []map[string]interface{}{
 				{
-					"_ref":                    "range/ref:10.1.216.10/10.1.216.100/default",
-					"network":                 "10.1.216.0/24",
+					"_ref":                    "range/ref:192.0.2.10/192.0.2.100/default",
+					"network":                 "192.0.2.0/24",
 					"network_view":            "default",
-					"start_addr":              "10.1.216.10",
-					"end_addr":                "10.1.216.100",
+					"start_addr":              "192.0.2.10",
+					"end_addr":                "192.0.2.100",
 					"dhcp_utilization":        1000,
 					"dhcp_utilization_status": "LOW",
 					"dynamic_hosts":           2,
@@ -49,8 +50,8 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 		case "/wapi/v2.13.7/ipv4address":
 			writeResult(t, w, []map[string]interface{}{
 				{
-					"ip_address":   "10.1.216.1",
-					"network":      "10.1.216.0/24",
+					"ip_address":   "192.0.2.1",
+					"network":      "192.0.2.0/24",
 					"network_view": "default",
 					"status":       "USED",
 					"lease_state":  "ACTIVE",
@@ -58,8 +59,8 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 					"usage":        []string{"DNS", "DHCP"},
 				},
 				{
-					"ip_address":   "10.1.216.254",
-					"network":      "10.1.216.0/24",
+					"ip_address":   "192.0.2.254",
+					"network":      "192.0.2.0/24",
 					"network_view": "default",
 					"status":       "USED",
 					"types":        []string{"UNMANAGED"},
@@ -175,7 +176,7 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 			})
 		case "/wapi/v2.13.7/ipam:statistics":
 			writeObject(t, w, map[string]interface{}{
-				"network":            "10.1.216.0/24",
+				"network":            "192.0.2.0/24",
 				"network_view":       "default",
 				"cidr":               24,
 				"conflict_count":     1,
@@ -254,8 +255,8 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 	cfg := config.Default()
 	cfg.NetworkViews = []string{"default"}
 	cfg.DNSViews = []string{"default"}
-	cfg.Networks = []string{"10.1.216.0/24"}
-	cfg.IPv4Networks = []string{"10.1.216.0/24"}
+	cfg.Networks = []string{"192.0.2.0/24"}
+	cfg.IPv4InventoryNetworks = []string{"192.0.2.0/24"}
 	cfg.Zones = []string{"example.test"}
 
 	client, err := wapi.NewClient(wapi.Config{
@@ -283,14 +284,17 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 	names := map[string]bool{}
 	for _, family := range families {
 		names[family.GetName()] = true
+		if strings.HasPrefix(family.GetName(), "infoblox_ipv4address_") {
+			t.Fatalf("removed IPv4 address metric family is still exposed: %s", family.GetName())
+		}
 	}
 	for _, expected := range []string{
 		"infoblox_up",
 		"infoblox_network_info",
 		"infoblox_network_utilization_ratio",
 		"infoblox_range_info",
-		"infoblox_ipv4address_status_count",
-		"infoblox_ipv4address_conflicts",
+		"infoblox_ipv4inventory_info",
+		"infoblox_ipv4inventory_address_count",
 		"infoblox_member_info",
 		"infoblox_member_service_status",
 		"infoblox_restart_service_status",
@@ -316,36 +320,36 @@ func TestExporterCollectsCoreMetrics(t *testing.T) {
 	}
 }
 
-func TestExporterUsesIndependentNetworkScopes(t *testing.T) {
+func TestExporterUsesIndependentNetworkAndInventoryScopes(t *testing.T) {
 	tests := []struct {
 		name               string
 		networks           []string
 		wantInventoryScope string
 	}{
 		{
-			name:               "IPv4 scope leaves inventory unfiltered",
+			name:               "operational collectors remain unfiltered",
 			wantInventoryScope: "",
 		},
 		{
-			name:               "inventory and IPv4 scopes differ",
-			networks:           []string{"10.0.0.0/24"},
-			wantInventoryScope: "10.0.0.0/24",
+			name:               "operational and inventory scopes differ",
+			networks:           []string{"198.51.100.0/24"},
+			wantInventoryScope: "198.51.100.0/24",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			queries := map[string]string{}
+			queries := map[string]url.Values{}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				queries[r.URL.Path] = r.URL.Query().Get("network")
+				queries[r.URL.Path] = r.URL.Query()
 				writeResult(t, w, []map[string]interface{}{})
 			}))
 			defer server.Close()
 
 			cfg := config.Default()
-			cfg.DisabledModules = allModulesExceptAny("network", "range", "ipv4address")
+			cfg.DisabledModules = allModulesExceptAny("network", "range", "ipv4inventory")
 			cfg.Networks = tt.networks
-			cfg.IPv4Networks = []string{"10.1.0.0/24"}
+			cfg.IPv4InventoryNetworks = []string{"192.0.2.0/24"}
 			client, err := wapi.NewClient(wapi.Config{
 				BaseURL:  server.URL + "/wapi/v2.13.7",
 				Username: "user",
@@ -364,138 +368,97 @@ func TestExporterUsesIndependentNetworkScopes(t *testing.T) {
 			}
 
 			for _, path := range []string{"/wapi/v2.13.7/network", "/wapi/v2.13.7/range"} {
-				got, ok := queries[path]
+				query, ok := queries[path]
 				if !ok {
 					t.Fatalf("missing request to %s", path)
 				}
-				if got != tt.wantInventoryScope {
+				if got := query.Get("network"); got != tt.wantInventoryScope {
 					t.Fatalf("%s network scope = %q, want %q", path, got, tt.wantInventoryScope)
 				}
 			}
-			got, ok := queries["/wapi/v2.13.7/ipv4address"]
+			query, ok := queries["/wapi/v2.13.7/ipv4address"]
 			if !ok {
 				t.Fatal("missing IPv4 address request")
 			}
-			if got != "10.1.0.0/24" {
-				t.Fatalf("IPv4 network scope = %q, want %q", got, "10.1.0.0/24")
+			if got := query.Get("network"); got != "" {
+				t.Fatalf("inventory must not use the expensive network expansion filter: %q", got)
+			}
+			if query.Get("status") != "USED" || query.Get("ip_address>") != "192.0.1.255" || query.Get("ip_address<") != "192.0.3.0" {
+				t.Fatalf("unexpected inventory query: %s", query.Encode())
 			}
 
 			families, err := registry.Gather()
 			if err != nil {
 				t.Fatal(err)
 			}
-			if value := metricValue(t, families, "infoblox_ipv4address_collector_configured"); value != 1 {
-				t.Fatalf("IPv4 collector configured = %f, want 1", value)
+			if value := metricValue(t, families, "infoblox_ipv4inventory_collector_configured"); value != 1 {
+				t.Fatalf("IPv4 inventory collector configured = %f, want 1", value)
 			}
 		})
 	}
 }
 
-func TestIPv4AddressInfoOptIn(t *testing.T) {
-	tests := []struct {
-		name    string
-		enabled bool
-	}{
-		{name: "disabled by default"},
-		{name: "enabled for occupied addresses", enabled: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var returnFields string
-			var statusFilter string
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/wapi/v2.13.7/ipv4address" {
-					t.Fatalf("unexpected path: %s", r.URL.Path)
-				}
-				returnFields = r.URL.Query().Get("_return_fields")
-				statusFilter = r.URL.Query().Get("status")
-				writeResult(t, w, []map[string]interface{}{
-					{
-						"ip_address":   "10.203.33.17",
-						"network":      "10.203.33.0/24",
-						"network_view": "default",
-						"status":       "USED",
-						"names":        []string{"host-b.example", "", "host-a.example", "host-a.example"},
-						"types":        []string{"HOST", "HOST"},
-						"usage":        []string{"DNS", "DHCP"},
-					},
-					{
-						"ip_address":   "10.203.33.18",
-						"network":      "10.203.33.0/24",
-						"network_view": "default",
-						"status":       "UNUSED",
-						"names":        []string{"unused.example"},
-					},
-				})
-			}))
-			defer server.Close()
-
-			cfg := config.Default()
-			cfg.DisabledModules = allModulesExcept("ipv4address")
-			cfg.IPv4Networks = []string{"10.203.33.0/24"}
-			cfg.IPv4AddressInfo = tt.enabled
-			client, err := wapi.NewClient(wapi.Config{
-				BaseURL:  server.URL + "/wapi/v2.13.7",
-				Username: "user",
-				Password: "pass",
-				PageSize: cfg.PageSize,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			registry := prometheus.NewRegistry()
-			exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
-			registry.MustRegister(exporter)
-			if err := exporter.RefreshOnce(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-			families, err := registry.Gather()
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if strings.Contains(returnFields, "names") != tt.enabled {
-				t.Fatalf("_return_fields = %q, names enabled = %t", returnFields, tt.enabled)
-			}
-			if statusFilter != "" {
-				t.Fatalf("aggregate request unexpectedly filtered by status %q", statusFilter)
-			}
-			unused := metricForLabels(t, families, "infoblox_ipv4address_status_count", map[string]string{
-				"network": "10.203.33.0/24", "network_view": "default", "status": "UNUSED",
-			})
-			if unused.GetGauge().GetValue() != 1 {
-				t.Fatalf("unused address count = %f, want 1", unused.GetGauge().GetValue())
-			}
-
-			if !tt.enabled {
-				if hasMetric(families, "infoblox_ipv4address_info") {
-					t.Fatalf("IPv4 address info should be absent when disabled")
-				}
-				return
-			}
-
-			info := metricForLabels(t, families, "infoblox_ipv4address_info", map[string]string{
-				"ip_address":   "10.203.33.17",
-				"network":      "10.203.33.0/24",
+func TestIPv4InventoryEmitsOnlySelectedOccupiedAddresses(t *testing.T) {
+	var query url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wapi/v2.13.7/ipv4address" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		query = r.URL.Query()
+		writeResult(t, w, []map[string]interface{}{
+			{
+				"ip_address":   "198.51.100.17",
+				"network":      "198.51.100.1/24",
 				"network_view": "default",
 				"status":       "USED",
-				"names":        "host-a.example,host-b.example",
-				"types":        "HOST",
-				"usage":        "DHCP,DNS",
-			})
-			if info.GetGauge().GetValue() != 1 {
-				t.Fatalf("IPv4 address info = %f, want 1", info.GetGauge().GetValue())
-			}
-			if familyMetricCount(families, "infoblox_ipv4address_info") != 1 {
-				t.Fatalf("IPv4 address info should contain only the occupied address")
-			}
+				"names":        []string{"host-b.example", "", "host-a.example", "host-a.example"},
+				"types":        []string{"HOST", "HOST"},
+				"usage":        []string{"DNS", "DHCP"},
+			},
+			{"ip_address": "198.51.100.17", "network": "198.51.100.0/24", "network_view": "default", "status": "USED"},
+			{"ip_address": "198.51.100.18", "network": "198.51.100.0/24", "network_view": "default", "status": "UNUSED"},
+			{"ip_address": "203.0.113.1", "network": "203.0.113.0/24", "network_view": "default", "status": "USED"},
 		})
+	}))
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.DisabledModules = allModulesExcept("ipv4inventory")
+	cfg.IPv4InventoryNetworks = []string{"198.51.100.1/24"}
+	client, err := wapi.NewClient(wapi.Config{BaseURL: server.URL + "/wapi/v2.13.7", Username: "user", Password: "pass", PageSize: cfg.PageSize})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := prometheus.NewRegistry()
+	exporter := New(cfg, client, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	registry.MustRegister(exporter)
+	if err := exporter.RefreshOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	families, err := registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if query.Get("status") != "USED" || query.Get("_max_results") != "2000" || !strings.Contains(query.Get("_return_fields"), "names") {
+		t.Fatalf("unexpected inventory query: %s", query.Encode())
+	}
+	info := metricForLabels(t, families, "infoblox_ipv4inventory_info", map[string]string{
+		"ip_address": "198.51.100.17", "network": "198.51.100.0/24", "network_view": "default", "status": "USED",
+		"names": "host-a.example,host-b.example", "types": "HOST", "usage": "DHCP,DNS",
+	})
+	if info.GetGauge().GetValue() != 1 || familyMetricCount(families, "infoblox_ipv4inventory_info") != 1 {
+		t.Fatalf("unexpected IPv4 inventory info metrics")
+	}
+	if metricValueForLabels(t, families, "infoblox_ipv4inventory_objects", map[string]string{"stage": "returned"}) != 4 || metricValueForLabels(t, families, "infoblox_ipv4inventory_objects", map[string]string{"stage": "filtered"}) != 2 || metricValueForLabels(t, families, "infoblox_ipv4inventory_objects", map[string]string{"stage": "emitted"}) != 1 {
+		t.Fatalf("unexpected IPv4 inventory processing counts")
+	}
+	if metricValueForLabels(t, families, "infoblox_ipv4inventory_address_count", map[string]string{"network": "198.51.100.0/24", "network_view": "default"}) != 1 {
+		t.Fatalf("unexpected IPv4 inventory address count")
 	}
 }
 
-func TestIPv4AddressInfoReplacesCache(t *testing.T) {
+func TestIPv4InventoryReplacesCache(t *testing.T) {
 	empty := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/wapi/v2.13.7/ipv4address" {
@@ -507,8 +470,8 @@ func TestIPv4AddressInfoReplacesCache(t *testing.T) {
 		}
 		writeResult(t, w, []map[string]interface{}{
 			{
-				"ip_address":   "10.203.33.17",
-				"network":      "10.203.33.0/24",
+				"ip_address":   "198.51.100.17",
+				"network":      "198.51.100.0/24",
 				"network_view": "default",
 				"status":       "USED",
 			},
@@ -517,9 +480,8 @@ func TestIPv4AddressInfoReplacesCache(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Default()
-	cfg.DisabledModules = allModulesExcept("ipv4address")
-	cfg.IPv4Networks = []string{"10.203.33.0/24"}
-	cfg.IPv4AddressInfo = true
+	cfg.DisabledModules = allModulesExcept("ipv4inventory")
+	cfg.IPv4InventoryNetworks = []string{"198.51.100.0/24"}
 	client, err := wapi.NewClient(wapi.Config{
 		BaseURL:  server.URL + "/wapi/v2.13.7",
 		Username: "user",
@@ -540,8 +502,8 @@ func TestIPv4AddressInfoReplacesCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasMetric(families, "infoblox_ipv4address_info") {
-		t.Fatalf("expected cached IPv4 address info")
+	if !hasMetric(families, "infoblox_ipv4inventory_info") {
+		t.Fatalf("expected cached IPv4 inventory info")
 	}
 
 	empty = true
@@ -552,8 +514,8 @@ func TestIPv4AddressInfoReplacesCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hasMetric(families, "infoblox_ipv4address_info") {
-		t.Fatalf("successful empty refresh should remove IPv4 address info")
+	if hasMetric(families, "infoblox_ipv4inventory_info") {
+		t.Fatalf("successful empty refresh should remove IPv4 inventory info")
 	}
 }
 
@@ -569,7 +531,7 @@ func TestExporterHonorsDisabledModules(t *testing.T) {
 	cfg.DisabledModules = []string{
 		"network",
 		"range",
-		"ipv4address",
+		"ipv4inventory",
 		"member",
 		"restartservicestatus",
 		"servicerestart",
@@ -617,7 +579,7 @@ func TestExporterMetricsReadCacheOnly(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		writeResult(t, w, []map[string]interface{}{
-			{"network": "10.0.0.0/24", "network_view": "default"},
+			{"network": "192.0.2.0/24", "network_view": "default"},
 		})
 	}))
 	defer server.Close()
@@ -665,7 +627,7 @@ func TestExporterKeepsCacheAfterFailedRefresh(t *testing.T) {
 			return
 		}
 		writeResult(t, w, []map[string]interface{}{
-			{"network": "10.0.0.0/24", "network_view": "default"},
+			{"network": "192.0.2.0/24", "network_view": "default"},
 		})
 	}))
 	defer server.Close()
@@ -709,7 +671,7 @@ func TestExporterPublishesCacheAfterOptionalCollectorFailure(t *testing.T) {
 		switch r.URL.Path {
 		case "/wapi/v2.13.7/network":
 			writeResult(t, w, []map[string]interface{}{
-				{"network": "10.0.0.0/24", "network_view": "default"},
+				{"network": "192.0.2.0/24", "network_view": "default"},
 			})
 		case "/wapi/v2.13.7/threatprotection:statistics":
 			http.Error(w, "slow collector failed", http.StatusInternalServerError)
@@ -760,7 +722,7 @@ func TestExporterReplacesCacheAfterSuccessfulRefresh(t *testing.T) {
 			return
 		}
 		writeResult(t, w, []map[string]interface{}{
-			{"network": "10.0.0.0/24", "network_view": "default"},
+			{"network": "192.0.2.0/24", "network_view": "default"},
 		})
 	}))
 	defer server.Close()
@@ -812,7 +774,7 @@ func allModulesExceptAny(keep ...string) []string {
 	modules := []string{
 		"network",
 		"range",
-		"ipv4address",
+		"ipv4inventory",
 		"member",
 		"restartservicestatus",
 		"servicerestart",
@@ -883,6 +845,11 @@ func metricForLabels(t *testing.T, families []*dto.MetricFamily, name string, la
 	}
 	t.Fatalf("missing metric %s with labels %#v", name, labels)
 	return nil
+}
+
+func metricValueForLabels(t *testing.T, families []*dto.MetricFamily, name string, labels map[string]string) float64 {
+	t.Helper()
+	return metricForLabels(t, families, name, labels).GetGauge().GetValue()
 }
 
 func writeResult(t *testing.T, w http.ResponseWriter, result interface{}) {

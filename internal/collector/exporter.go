@@ -33,65 +33,65 @@ type Exporter struct {
 	schedulerCancel context.CancelFunc
 	moduleStates    map[string]*moduleState
 
-	up                 *prometheus.GaugeVec
-	scrapeDuration     *prometheus.GaugeVec
-	collectorUp        *prometheus.GaugeVec
-	ipv4Configured     *prometheus.GaugeVec
-	refreshDuration    *prometheus.GaugeVec
-	refreshTotal       *prometheus.CounterVec
-	refreshErrorsTotal *prometheus.CounterVec
-	cacheLastAttempt   *prometheus.GaugeVec
-	cacheLastSuccess   *prometheus.GaugeVec
-	cacheAge           *prometheus.GaugeVec
-	cacheStale         *prometheus.GaugeVec
-	networkInfo        *prometheus.GaugeVec
-	networkUtilization *prometheus.GaugeVec
-	networkDHCPUtil    *prometheus.GaugeVec
-	networkUtilUpdated *prometheus.GaugeVec
-	networkDHCPStatus  *prometheus.GaugeVec
-	rangeInfo          *prometheus.GaugeVec
-	rangeDHCPUtil      *prometheus.GaugeVec
-	rangeDHCPStatus    *prometheus.GaugeVec
-	rangeDynamicHosts  *prometheus.GaugeVec
-	ipv4Info           *prometheus.GaugeVec
-	ipv4StatusCount    *prometheus.GaugeVec
-	ipv4TypeCount      *prometheus.GaugeVec
-	ipv4UsageCount     *prometheus.GaugeVec
-	ipv4LeaseCount     *prometheus.GaugeVec
-	ipv4ConflictCount  *prometheus.GaugeVec
-	memberInfo         *prometheus.GaugeVec
-	memberService      *prometheus.GaugeVec
-	restartService     *prometheus.GaugeVec
-	serviceRestart     *prometheus.GaugeVec
-	serviceRestartReq  *prometheus.GaugeVec
-	serviceRestartTime *prometheus.GaugeVec
-	capacityInfo       *prometheus.GaugeVec
-	capacityUsed       *prometheus.GaugeVec
-	capacityMax        *prometheus.GaugeVec
-	capacityObjects    *prometheus.GaugeVec
-	capacityObjectType *prometheus.GaugeVec
-	licenseInfo        *prometheus.GaugeVec
-	licenseExpiry      *prometheus.GaugeVec
-	upgradeInfo        *prometheus.GaugeVec
-	upgradeSteps       *prometheus.GaugeVec
-	upgradeStatusTime  *prometheus.GaugeVec
-	dhcpStatsUtil      *prometheus.GaugeVec
-	dhcpStatsStatus    *prometheus.GaugeVec
-	dhcpStatsHosts     *prometheus.GaugeVec
-	ipamStatsUtil      *prometheus.GaugeVec
-	ipamStatsCount     *prometheus.GaugeVec
-	ipamStatsUpdated   *prometheus.GaugeVec
-	dhcpFailoverInfo   *prometheus.GaugeVec
-	dhcpFailoverValue  *prometheus.GaugeVec
-	dnsRecordInfo      *prometheus.GaugeVec
-	dnsRecordTTL       *prometheus.GaugeVec
-	dnsRecordCount     *prometheus.GaugeVec
-	dnsRecordDisabled  *prometheus.GaugeVec
-	dnsRecordReclaim   *prometheus.GaugeVec
-	dnsZoneInfo        *prometheus.GaugeVec
-	dtcObjectInfo      *prometheus.GaugeVec
-	dtcObjectCount     *prometheus.GaugeVec
-	threatStatValue    *prometheus.GaugeVec
+	up                        *prometheus.GaugeVec
+	scrapeDuration            *prometheus.GaugeVec
+	collectorUp               *prometheus.GaugeVec
+	ipv4InventoryConfigured   *prometheus.GaugeVec
+	ipv4InventoryObjects      *prometheus.GaugeVec
+	ipv4InventorySelected     *prometheus.GaugeVec
+	ipv4InventoryScanRanges   *prometheus.GaugeVec
+	ipv4InventoryAddressCount *prometheus.GaugeVec
+	ipv4InventoryInfo         *prometheus.Desc
+	ipv4Inventory             []inventoryAddress
+	refreshDuration           *prometheus.GaugeVec
+	refreshTotal              *prometheus.CounterVec
+	refreshErrorsTotal        *prometheus.CounterVec
+	cacheLastAttempt          *prometheus.GaugeVec
+	cacheLastSuccess          *prometheus.GaugeVec
+	cacheAge                  *prometheus.GaugeVec
+	cacheStale                *prometheus.GaugeVec
+	networkInfo               *prometheus.GaugeVec
+	networkUtilization        *prometheus.GaugeVec
+	networkDHCPUtil           *prometheus.GaugeVec
+	networkUtilUpdated        *prometheus.GaugeVec
+	networkDHCPStatus         *prometheus.GaugeVec
+	rangeInfo                 *prometheus.GaugeVec
+	rangeDHCPUtil             *prometheus.GaugeVec
+	rangeDHCPStatus           *prometheus.GaugeVec
+	rangeDynamicHosts         *prometheus.GaugeVec
+	memberInfo                *prometheus.GaugeVec
+	memberService             *prometheus.GaugeVec
+	restartService            *prometheus.GaugeVec
+	serviceRestart            *prometheus.GaugeVec
+	serviceRestartReq         *prometheus.GaugeVec
+	serviceRestartTime        *prometheus.GaugeVec
+	capacityInfo              *prometheus.GaugeVec
+	capacityUsed              *prometheus.GaugeVec
+	capacityMax               *prometheus.GaugeVec
+	capacityObjects           *prometheus.GaugeVec
+	capacityObjectType        *prometheus.GaugeVec
+	licenseInfo               *prometheus.GaugeVec
+	licenseExpiry             *prometheus.GaugeVec
+	upgradeInfo               *prometheus.GaugeVec
+	upgradeSteps              *prometheus.GaugeVec
+	upgradeStatusTime         *prometheus.GaugeVec
+	dhcpStatsUtil             *prometheus.GaugeVec
+	dhcpStatsStatus           *prometheus.GaugeVec
+	dhcpStatsHosts            *prometheus.GaugeVec
+	ipamStatsUtil             *prometheus.GaugeVec
+	ipamStatsCount            *prometheus.GaugeVec
+	ipamStatsUpdated          *prometheus.GaugeVec
+	dhcpFailoverInfo          *prometheus.GaugeVec
+	dhcpFailoverValue         *prometheus.GaugeVec
+	dnsRecordInfo             *prometheus.GaugeVec
+	dnsRecordTTL              *prometheus.GaugeVec
+	dnsRecordCount            *prometheus.GaugeVec
+	dnsRecordDisabled         *prometheus.GaugeVec
+	dnsRecordReclaim          *prometheus.GaugeVec
+	dnsZoneInfo               *prometheus.GaugeVec
+	dtcObjectInfo             *prometheus.GaugeVec
+	dtcObjectCount            *prometheus.GaugeVec
+	threatStatValue           *prometheus.GaugeVec
 }
 
 type collectorResult struct {
@@ -145,6 +145,15 @@ func New(cfg config.Config, client *wapi.Client, logger *slog.Logger) *Exporter 
 	if cfg.MaxStale <= 0 {
 		cfg.MaxStale = defaults.MaxStale
 	}
+	if cfg.IPv4InventoryPageSize <= 0 {
+		cfg.IPv4InventoryPageSize = defaults.IPv4InventoryPageSize
+	}
+	if cfg.IPv4InventoryMaxAddresses <= 0 {
+		cfg.IPv4InventoryMaxAddresses = defaults.IPv4InventoryMaxAddresses
+	}
+	if cfg.IPv4InventoryTimeout <= 0 {
+		cfg.IPv4InventoryTimeout = defaults.IPv4InventoryTimeout
+	}
 	namespace := "infoblox"
 	g := func(name, help string, labels []string) *prometheus.GaugeVec {
 		return prometheus.NewGaugeVec(prometheus.GaugeOpts{Namespace: namespace, Name: name, Help: help}, labels)
@@ -158,10 +167,20 @@ func New(cfg config.Config, client *wapi.Client, logger *slog.Logger) *Exporter 
 		logger:       logger,
 		moduleStates: make(map[string]*moduleState),
 
-		up:                 g("up", "Whether the last Infoblox background refresh completed without collector errors.", nil),
-		scrapeDuration:     g("scrape_duration_seconds", "Compatibility alias for the last Infoblox background refresh duration.", nil),
-		collectorUp:        g("collector_up", "Whether the named Infoblox collector completed successfully during the last refresh.", []string{"collector"}),
-		ipv4Configured:     g("ipv4address_collector_configured", "Whether the IPv4 address collector has explicit IPv4 networks configured.", nil),
+		up:                        g("up", "Whether the last Infoblox background refresh completed without collector errors.", nil),
+		scrapeDuration:            g("scrape_duration_seconds", "Compatibility alias for the last Infoblox background refresh duration.", nil),
+		collectorUp:               g("collector_up", "Whether the named Infoblox collector completed successfully during the last refresh.", []string{"collector"}),
+		ipv4InventoryConfigured:   g("ipv4inventory_collector_configured", "Whether the IPv4 inventory collector has an explicit selector or scan range configured.", nil),
+		ipv4InventoryObjects:      g("ipv4inventory_objects", "IPv4 inventory objects at each processing stage.", []string{"stage"}),
+		ipv4InventorySelected:     g("ipv4inventory_selected_networks", "Number of unique networks selected for IPv4 inventory.", nil),
+		ipv4InventoryScanRanges:   g("ipv4inventory_scan_ranges", "Number of merged IPv4 inventory query intervals.", nil),
+		ipv4InventoryAddressCount: g("ipv4inventory_address_count", "Occupied IPv4 inventory addresses by network and network view.", []string{"network", "network_view"}),
+		ipv4InventoryInfo: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "ipv4inventory_info"),
+			"Infoblox occupied IPv4 inventory address metadata. This can be high-cardinality.",
+			[]string{"ip_address", "network", "network_view", "status", "names", "types", "usage"},
+			nil,
+		),
 		refreshDuration:    g("refresh_duration_seconds", "Duration of the last Infoblox background refresh.", nil),
 		refreshTotal:       c("refresh_total", "Total Infoblox background refresh attempts.", nil),
 		refreshErrorsTotal: c("refresh_errors_total", "Total Infoblox background refresh failures.", nil),
@@ -179,12 +198,6 @@ func New(cfg config.Config, client *wapi.Client, logger *slog.Logger) *Exporter 
 		rangeDHCPUtil:      g("range_dhcp_utilization_ratio", "Infoblox DHCP range utilization ratio.", []string{"network", "network_view", "start_addr", "end_addr"}),
 		rangeDHCPStatus:    g("range_dhcp_utilization_status", "Infoblox DHCP range utilization status as a one-hot gauge.", []string{"network", "network_view", "start_addr", "end_addr", "status"}),
 		rangeDynamicHosts:  g("range_dynamic_hosts", "Total DHCP leases issued for the Infoblox range.", []string{"network", "network_view", "start_addr", "end_addr"}),
-		ipv4Info:           g("ipv4address_info", "Infoblox occupied IPv4 address metadata. This can be high-cardinality.", []string{"ip_address", "network", "network_view", "status", "names", "types", "usage"}),
-		ipv4StatusCount:    g("ipv4address_status_count", "Infoblox IPv4 address count by status.", []string{"network", "network_view", "status"}),
-		ipv4TypeCount:      g("ipv4address_type_count", "Infoblox IPv4 address count by type.", []string{"network", "network_view", "type"}),
-		ipv4UsageCount:     g("ipv4address_usage_count", "Infoblox IPv4 address count by usage.", []string{"network", "network_view", "usage"}),
-		ipv4LeaseCount:     g("ipv4address_lease_state_count", "Infoblox IPv4 address count by lease state.", []string{"network", "network_view", "lease_state"}),
-		ipv4ConflictCount:  g("ipv4address_conflicts", "Infoblox IPv4 addresses with conflict detected.", []string{"network", "network_view"}),
 		memberInfo:         g("member_info", "Infoblox Grid member metadata.", []string{"member", "platform", "service_type_configuration"}),
 		memberService:      g("member_service_status", "Infoblox Grid member service status as a one-hot gauge.", []string{"member", "service", "status"}),
 		restartService:     g("restart_service_status", "Infoblox restart service status as a one-hot gauge.", []string{"member", "service", "status"}),
@@ -226,11 +239,17 @@ func New(cfg config.Config, client *wapi.Client, logger *slog.Logger) *Exporter 
 	e.cacheLastSuccess.WithLabelValues().Set(0)
 	e.refreshDuration.WithLabelValues().Set(0)
 	e.scrapeDuration.WithLabelValues().Set(0)
-	e.ipv4Configured.WithLabelValues().Set(0)
+	e.ipv4InventoryConfigured.WithLabelValues().Set(0)
+	e.ipv4InventoryObjects.WithLabelValues("returned").Set(0)
+	e.ipv4InventoryObjects.WithLabelValues("filtered").Set(0)
+	e.ipv4InventoryObjects.WithLabelValues("emitted").Set(0)
+	e.ipv4InventorySelected.WithLabelValues().Set(0)
+	e.ipv4InventoryScanRanges.WithLabelValues().Set(0)
 	return e
 }
 
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
+	ch <- e.ipv4InventoryInfo
 	for _, collector := range e.allCollectors() {
 		collector.Describe(ch)
 	}
@@ -241,10 +260,25 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.cacheMu.Lock()
 	e.updateDynamicCacheMetricsLocked(time.Now())
 	collectors := e.allCollectors()
+	inventory := append([]inventoryAddress(nil), e.ipv4Inventory...)
 	e.cacheMu.Unlock()
 
 	for _, collector := range collectors {
 		collector.Collect(ch)
+	}
+	for _, address := range inventory {
+		ch <- prometheus.MustNewConstMetric(
+			e.ipv4InventoryInfo,
+			prometheus.GaugeValue,
+			1,
+			address.IPAddress,
+			address.Network,
+			address.NetworkView,
+			"USED",
+			address.Names,
+			address.Types,
+			address.Usage,
+		)
 	}
 }
 
@@ -323,15 +357,15 @@ func (e *Exporter) RefreshOnce(ctx context.Context) error {
 	if next.enabled("range") {
 		recordResult(next.runCollector(ctx, "range", next.collectRanges))
 	}
-	if next.enabled("ipv4address") {
+	if next.enabled("ipv4inventory") {
 		configured := 0.0
-		if len(next.cfg.IPv4Networks) > 0 {
+		if next.cfg.IPv4InventoryConfigured() {
 			configured = 1
-			recordResult(next.runCollector(ctx, "ipv4address", next.collectIPv4Addresses))
+			recordResult(next.runCollector(ctx, "ipv4inventory", next.collectIPv4Inventory))
 		} else {
-			next.collectorUp.WithLabelValues("ipv4address").Set(1)
+			next.collectorUp.WithLabelValues("ipv4inventory").Set(1)
 		}
-		next.ipv4Configured.WithLabelValues().Set(configured)
+		next.ipv4InventoryConfigured.WithLabelValues().Set(configured)
 	}
 	if next.enabled("member") {
 		recordResult(next.runCollector(ctx, "member", next.collectMembers))
@@ -386,6 +420,11 @@ func (e *Exporter) RefreshOnce(ctx context.Context) error {
 	if blockingErrorCount == 0 {
 		e.replaceCachedDataLocked(next)
 		e.cacheLastSuccess.WithLabelValues().Set(float64(finished.Unix()))
+	} else {
+		// Health describes the latest attempt even when the last-good data cache
+		// must be preserved because a blocking collector failed.
+		e.collectorUp = next.collectorUp
+		e.moduleStates = next.moduleStates
 	}
 	if errorCount > 0 {
 		e.refreshErrorsTotal.WithLabelValues().Inc()
@@ -403,7 +442,11 @@ func (e *Exporter) enabled(name string) bool {
 }
 
 func (e *Exporter) runCollector(parent context.Context, name string, fn func(context.Context, chan<- prometheus.Metric) error) collectorResult {
-	ctx, cancel := context.WithTimeout(parent, e.cfg.Timeout)
+	timeout := e.cfg.Timeout
+	if name == "ipv4inventory" {
+		timeout = e.cfg.IPv4InventoryTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	start := time.Now()
@@ -436,7 +479,7 @@ func (e *Exporter) runCollector(parent context.Context, name string, fn func(con
 
 func collectorFailureBlocksRefresh(name string) bool {
 	switch name {
-	case "network", "range", "ipv4address", "member":
+	case "network", "range", "ipv4inventory", "member", "dhcpstatistics":
 		return true
 	default:
 		return false
@@ -454,7 +497,7 @@ func (e *Exporter) ensureModuleStateLocked(name string) *moduleState {
 
 func (e *Exporter) allCollectors() []prometheus.Collector {
 	collectors := []prometheus.Collector{
-		e.up, e.scrapeDuration, e.collectorUp, e.ipv4Configured,
+		e.up, e.scrapeDuration, e.collectorUp, e.ipv4InventoryConfigured,
 		e.refreshDuration, e.refreshTotal, e.refreshErrorsTotal,
 		e.cacheLastAttempt, e.cacheLastSuccess, e.cacheAge, e.cacheStale,
 	}
@@ -468,7 +511,7 @@ func (e *Exporter) dataGaugeVecs() []*prometheus.GaugeVec {
 	return []*prometheus.GaugeVec{
 		e.networkInfo, e.networkUtilization, e.networkDHCPUtil, e.networkUtilUpdated, e.networkDHCPStatus,
 		e.rangeInfo, e.rangeDHCPUtil, e.rangeDHCPStatus, e.rangeDynamicHosts,
-		e.ipv4Info, e.ipv4StatusCount, e.ipv4TypeCount, e.ipv4UsageCount, e.ipv4LeaseCount, e.ipv4ConflictCount,
+		e.ipv4InventoryObjects, e.ipv4InventorySelected, e.ipv4InventoryScanRanges, e.ipv4InventoryAddressCount,
 		e.memberInfo, e.memberService,
 		e.restartService, e.serviceRestart, e.serviceRestartReq, e.serviceRestartTime,
 		e.capacityInfo, e.capacityUsed, e.capacityMax, e.capacityObjects, e.capacityObjectType,
@@ -485,7 +528,7 @@ func (e *Exporter) dataGaugeVecs() []*prometheus.GaugeVec {
 
 func (e *Exporter) replaceCachedDataLocked(next *Exporter) {
 	e.collectorUp = next.collectorUp
-	e.ipv4Configured = next.ipv4Configured
+	e.ipv4InventoryConfigured = next.ipv4InventoryConfigured
 	e.moduleStates = next.moduleStates
 
 	e.networkInfo = next.networkInfo
@@ -497,12 +540,11 @@ func (e *Exporter) replaceCachedDataLocked(next *Exporter) {
 	e.rangeDHCPUtil = next.rangeDHCPUtil
 	e.rangeDHCPStatus = next.rangeDHCPStatus
 	e.rangeDynamicHosts = next.rangeDynamicHosts
-	e.ipv4Info = next.ipv4Info
-	e.ipv4StatusCount = next.ipv4StatusCount
-	e.ipv4TypeCount = next.ipv4TypeCount
-	e.ipv4UsageCount = next.ipv4UsageCount
-	e.ipv4LeaseCount = next.ipv4LeaseCount
-	e.ipv4ConflictCount = next.ipv4ConflictCount
+	e.ipv4InventoryObjects = next.ipv4InventoryObjects
+	e.ipv4InventorySelected = next.ipv4InventorySelected
+	e.ipv4InventoryScanRanges = next.ipv4InventoryScanRanges
+	e.ipv4InventoryAddressCount = next.ipv4InventoryAddressCount
+	e.ipv4Inventory = append(e.ipv4Inventory[:0], next.ipv4Inventory...)
 	e.memberInfo = next.memberInfo
 	e.memberService = next.memberService
 	e.restartService = next.restartService
@@ -730,82 +772,6 @@ func (e *Exporter) collectRangesForQuery(ctx context.Context, ch chan<- promethe
 			e.rangeDynamicHosts.WithLabelValues(item.Network, networkView, item.StartAddr, item.EndAddr).Set(float64(item.DynamicHosts.Value))
 		}
 	}
-	return nil
-}
-
-func (e *Exporter) collectIPv4Addresses(ctx context.Context, ch chan<- prometheus.Metric) error {
-	for _, view := range viewsOrSingleEmpty(e.cfg.NetworkViews) {
-		for _, network := range e.cfg.IPv4Networks {
-			if err := e.collectIPv4AddressesForNetwork(ctx, ch, view, network); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (e *Exporter) collectIPv4AddressesForNetwork(ctx context.Context, ch chan<- prometheus.Metric, view string, network string) error {
-	returnFields := []string{"ip_address", "network", "network_view", "status", "lease_state", "types", "usage", "is_conflict"}
-	if e.cfg.IPv4AddressInfo {
-		returnFields = append(returnFields, "names")
-	}
-	params := fields(returnFields...)
-	params.Set("network", network)
-	if view != "" {
-		params.Set("network_view", view)
-	}
-
-	addresses, err := wapi.FetchAll[model.IPv4Address](ctx, e.client, "ipv4address", params)
-	if err != nil {
-		return err
-	}
-
-	statusCounts := map[string]int{}
-	typeCounts := map[string]int{}
-	usageCounts := map[string]int{}
-	leaseCounts := map[string]int{}
-	conflicts := 0
-	networkView := valueOr(view, "default")
-
-	for _, address := range addresses {
-		if address.NetworkView != "" {
-			networkView = address.NetworkView
-		}
-		if e.cfg.IPv4AddressInfo && strings.EqualFold(address.Status, "USED") && address.IPAddress != "" {
-			e.ipv4Info.WithLabelValues(
-				address.IPAddress,
-				valueOr(address.Network, network),
-				valueOr(address.NetworkView, view, "default"),
-				address.Status,
-				canonicalLabelValues(address.Names),
-				canonicalLabelValues(address.Types),
-				canonicalLabelValues(address.Usage),
-			).Set(1)
-		}
-		statusCounts[valueOr(address.Status, "unknown")]++
-		leaseCounts[valueOr(address.LeaseState, "none")]++
-		if len(address.Types) == 0 {
-			typeCounts["none"]++
-		}
-		for _, typ := range address.Types {
-			typeCounts[valueOr(typ, "unknown")]++
-		}
-		if len(address.Usage) == 0 {
-			usageCounts["none"]++
-		}
-		for _, usage := range address.Usage {
-			usageCounts[valueOr(usage, "unknown")]++
-		}
-		if address.IsConflict {
-			conflicts++
-		}
-	}
-
-	emitCounts(e.ipv4StatusCount, statusCounts, network, networkView)
-	emitCounts(e.ipv4TypeCount, typeCounts, network, networkView)
-	emitCounts(e.ipv4UsageCount, usageCounts, network, networkView)
-	emitCounts(e.ipv4LeaseCount, leaseCounts, network, networkView)
-	e.ipv4ConflictCount.WithLabelValues(network, networkView).Set(float64(conflicts))
 	return nil
 }
 
@@ -1038,7 +1004,7 @@ func (e *Exporter) collectDHCPStatistics(ctx context.Context, ch chan<- promethe
 				return ctx.Err()
 			case errors.Is(ctx.Err(), context.DeadlineExceeded):
 				e.logger.Debug("dhcp statistics collector deadline reached", "object_type", object.kind, "object", object.name, "ref", object.ref, "err", err)
-				return nil
+				return ctx.Err()
 			case isTimeoutError(err):
 				e.logger.Debug("dhcp statistics object timed out", "object_type", object.kind, "object", object.name, "ref", object.ref, "err", err)
 				continue
@@ -1419,17 +1385,6 @@ func isTimeoutError(err error) bool {
 	}
 	var netErr net.Error
 	return errors.As(err, &netErr) && netErr.Timeout()
-}
-
-func emitCounts(gauge *prometheus.GaugeVec, counts map[string]int, network string, networkView string) {
-	keys := make([]string, 0, len(counts))
-	for key := range counts {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		gauge.WithLabelValues(network, networkView, key).Set(float64(counts[key]))
-	}
 }
 
 func emitStatus(gauge *prometheus.GaugeVec, labels ...string) {

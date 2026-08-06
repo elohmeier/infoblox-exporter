@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestFetchAllUsesPagingAndBasicAuth(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"next_page_id": "abc123",
 				"result": []map[string]interface{}{
-					{"network": "10.0.0.0/24", "network_view": "default"},
+					{"network": "192.0.2.0/24", "network_view": "default"},
 				},
 			})
 			return
@@ -60,7 +61,7 @@ func TestFetchAllUsesPagingAndBasicAuth(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"result": []map[string]interface{}{
-				{"network": "10.0.1.0/24", "network_view": "default"},
+				{"network": "198.51.100.0/24", "network_view": "default"},
 			},
 		})
 	}))
@@ -83,11 +84,53 @@ func TestFetchAllUsesPagingAndBasicAuth(t *testing.T) {
 	if len(networks) != 2 {
 		t.Fatalf("expected 2 networks, got %d", len(networks))
 	}
-	if networks[0].Network != "10.0.0.0/24" || networks[1].Network != "10.0.1.0/24" {
+	if networks[0].Network != "192.0.2.0/24" || networks[1].Network != "198.51.100.0/24" {
 		t.Fatalf("unexpected networks: %#v", networks)
 	}
 	if requests != 2 {
 		t.Fatalf("expected 2 requests, got %d", requests)
+	}
+}
+
+func TestFetchPagesVisitsDecodedPagesAndStopsOnVisitorError(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Query().Get("_page_id") == "" {
+			writeJSON(t, w, map[string]interface{}{
+				"next_page_id": "next",
+				"result":       []map[string]interface{}{{"network": "192.0.2.0/24"}},
+			})
+			return
+		}
+		writeJSON(t, w, map[string]interface{}{
+			"result": []map[string]interface{}{{"network": "198.51.100.0/24"}, {"network": "203.0.113.0/24"}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL + "/wapi/v2.13.7", PageSize: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pageSizes []int
+	if err := FetchPages[model.Network](context.Background(), client, "network", url.Values{}, func(page []model.Network) error {
+		pageSizes = append(pageSizes, len(page))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pageSizes, []int{1, 2}) || requests != 2 {
+		t.Fatalf("unexpected streamed pages: sizes=%v requests=%d", pageSizes, requests)
+	}
+
+	stop := errors.New("stop visiting")
+	requests = 0
+	err = FetchPages[model.Network](context.Background(), client, "network", url.Values{}, func([]model.Network) error {
+		return stop
+	})
+	if !errors.Is(err, stop) || requests != 1 {
+		t.Fatalf("visitor error was not returned immediately: err=%v requests=%d", err, requests)
 	}
 }
 
@@ -215,7 +258,7 @@ func TestFetchAllRawPreservesMaxResults(t *testing.T) {
 		if got := r.URL.Query().Get("_max_results"); got != "7" {
 			t.Fatalf("unexpected _max_results: %s", got)
 		}
-		writeJSON(t, w, []map[string]interface{}{{"network": "10.0.0.0/24"}})
+		writeJSON(t, w, []map[string]interface{}{{"network": "192.0.2.0/24"}})
 	}))
 	defer server.Close()
 
@@ -285,7 +328,7 @@ func TestDecodePageVariants(t *testing.T) {
 	if _, _, err := decodePage(nil); err == nil {
 		t.Fatalf("expected empty page error")
 	}
-	result, next, err := decodePage(json.RawMessage(`[{"network":"10.0.0.0/24"}]`))
+	result, next, err := decodePage(json.RawMessage(`[{"network":"192.0.2.0/24"}]`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +341,7 @@ func TestDecodePageVariants(t *testing.T) {
 	if _, _, err := decodePage(json.RawMessage(`"not an object"`)); err == nil {
 		t.Fatalf("expected bad object error")
 	}
-	result, next, err = decodePage(json.RawMessage(`{"network":"10.0.0.0/24"}`))
+	result, next, err = decodePage(json.RawMessage(`{"network":"192.0.2.0/24"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
