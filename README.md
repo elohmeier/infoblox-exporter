@@ -104,7 +104,7 @@ The `network`, `range`, and `member` collectors can query all objects in the con
 
 The `ipv4inventory` collector remains inactive unless at least one inventory network, scan range, name regex, or network EA selector is configured. There is no accidental empty global scrape.
 
-Inventory requests always apply `status=USED`, address bounds, and the optional name regex in WAPI. Explicit networks and EA-selected networks are normalized, overlapping or adjacent CIDRs are merged into scan intervals, and returned records are then filtered against the exact selected network/view set. Pages are processed immediately; only the compact deduplicated result is cached. The `names`, `types`, and `usage` arrays are sorted, deduplicated, and joined with commas.
+Inventory requests always apply `status=USED`, address bounds, and the optional name regex in WAPI. Explicit networks and EA-selected networks are normalized and queried one network at a time, because WAPI searches addresses within a single network; returned records are then filtered against the exact selected network/view set. Pages are processed immediately; only the compact deduplicated result is cached. The `names`, `types`, and `usage` arrays are sorted, deduplicated, and joined with commas.
 
 When `-ipv4-inventory-scan-ranges` is set, those ranges control the WAPI query intervals while `-ipv4-inventory-networks` and `-ipv4-inventory-network-ea` remain exact local selectors. Scan ranges alone inventory every occupied address in those ranges. A name regex alone is allowed to perform an unbounded name-filtered search; the address cap remains mandatory protection.
 

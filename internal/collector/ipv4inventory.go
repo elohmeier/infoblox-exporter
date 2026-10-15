@@ -199,7 +199,7 @@ func (e *Exporter) inventoryQueries(selector *inventoryNetworkSelector) ([]inven
 	}
 
 	if len(e.cfg.IPv4InventoryScanRanges) > 0 {
-		intervals, err := mergedInventoryIntervals(e.cfg.IPv4InventoryScanRanges)
+		intervals, err := inventoryIntervals(e.cfg.IPv4InventoryScanRanges)
 		if err != nil {
 			return nil, err
 		}
@@ -218,7 +218,7 @@ func (e *Exporter) inventoryQueries(selector *inventoryNetworkSelector) ([]inven
 	}
 
 	if len(e.cfg.NetworkViews) == 0 {
-		intervals, err := mergedInventoryIntervals(selector.allNetworks())
+		intervals, err := inventoryIntervals(selector.allNetworks())
 		if err != nil {
 			return nil, err
 		}
@@ -227,7 +227,7 @@ func (e *Exporter) inventoryQueries(selector *inventoryNetworkSelector) ([]inven
 
 	var queries []inventoryQuery
 	for _, view := range e.cfg.NetworkViews {
-		intervals, err := mergedInventoryIntervals(selector.networksForView(view))
+		intervals, err := inventoryIntervals(selector.networksForView(view))
 		if err != nil {
 			return nil, err
 		}
@@ -284,8 +284,11 @@ func (s *inventoryNetworkSelector) networksForView(view string) []string {
 	return values
 }
 
-func mergedInventoryIntervals(values []string) ([]inventoryInterval, error) {
-	intervals := make([]inventoryInterval, 0, len(values))
+// inventoryIntervals returns one query interval per distinct CIDR. Intervals are
+// never merged: WAPI searches ipv4address within a single network, so a range
+// spanning adjacent networks returns the addresses of only one of them.
+func inventoryIntervals(values []string) ([]inventoryInterval, error) {
+	unique := make(map[inventoryInterval]struct{}, len(values))
 	for _, value := range values {
 		prefix, err := parseIPv4Prefix(value)
 		if err != nil {
@@ -297,7 +300,11 @@ func mergedInventoryIntervals(values []string) ([]inventoryInterval, error) {
 		if hostBits < 32 {
 			end = start | (uint32(1)<<hostBits - 1)
 		}
-		intervals = append(intervals, inventoryInterval{start: start, end: end})
+		unique[inventoryInterval{start: start, end: end}] = struct{}{}
+	}
+	intervals := make([]inventoryInterval, 0, len(unique))
+	for interval := range unique {
+		intervals = append(intervals, interval)
 	}
 	sort.Slice(intervals, func(i, j int) bool {
 		if intervals[i].start != intervals[j].start {
@@ -305,23 +312,7 @@ func mergedInventoryIntervals(values []string) ([]inventoryInterval, error) {
 		}
 		return intervals[i].end < intervals[j].end
 	})
-	merged := make([]inventoryInterval, 0, len(intervals))
-	for _, current := range intervals {
-		if len(merged) == 0 {
-			merged = append(merged, current)
-			continue
-		}
-		last := &merged[len(merged)-1]
-		adjacent := last.end != ^uint32(0) && current.start == last.end+1
-		if current.start <= last.end || adjacent {
-			if current.end > last.end {
-				last.end = current.end
-			}
-			continue
-		}
-		merged = append(merged, current)
-	}
-	return merged, nil
+	return intervals, nil
 }
 
 func inventoryQueriesForViews(views []string, intervals []inventoryInterval) []inventoryQuery {

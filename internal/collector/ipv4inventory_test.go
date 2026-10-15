@@ -15,26 +15,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func TestMergedInventoryIntervalsNormalizesAndMerges(t *testing.T) {
-	intervals, err := mergedInventoryIntervals([]string{
-		"192.0.2.17/25",
-		"192.0.2.128/25",
-		"192.0.2.128/26",
+func TestInventoryIntervalsKeepNetworksSeparate(t *testing.T) {
+	intervals, err := inventoryIntervals([]string{
 		"198.51.100.0/24",
+		"192.0.2.128/25",
+		"192.0.2.17/25",
+		"192.0.2.0/25",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(intervals) != 2 {
-		t.Fatalf("merged interval count = %d, want 2", len(intervals))
+	want := [][2]string{
+		{"192.0.2.0", "192.0.2.127"},
+		{"192.0.2.128", "192.0.2.255"},
+		{"198.51.100.0", "198.51.100.255"},
 	}
-	if ipv4Addr(intervals[0].start).String() != "192.0.2.0" || ipv4Addr(intervals[0].end).String() != "192.0.2.255" {
-		t.Fatalf("unexpected first interval: %#v", intervals[0])
+	if len(intervals) != len(want) {
+		t.Fatalf("interval count = %d, want %d: %#v", len(intervals), len(want), intervals)
 	}
-	if ipv4Addr(intervals[1].start).String() != "198.51.100.0" || ipv4Addr(intervals[1].end).String() != "198.51.100.255" {
-		t.Fatalf("unexpected second interval: %#v", intervals[1])
+	for i, interval := range intervals {
+		if got := [2]string{ipv4Addr(interval.start).String(), ipv4Addr(interval.end).String()}; got != want[i] {
+			t.Fatalf("interval %d = %v, want %v", i, got, want[i])
+		}
 	}
-	if _, err := mergedInventoryIntervals([]string{"2001:db8::/32"}); err == nil {
+	if _, err := inventoryIntervals([]string{"2001:db8::/32"}); err == nil {
 		t.Fatalf("IPv6 interval should be rejected")
 	}
 }
@@ -64,14 +68,17 @@ func TestInventoryQueryPlanning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(queries) != 2 {
-		t.Fatalf("adjacent blue networks and the green network should produce two queries, got %d", len(queries))
+	if len(queries) != 3 {
+		t.Fatalf("adjacent blue networks must be queried separately, plus the green network; got %d", len(queries))
 	}
-	if queries[0].view != "blue" || ipv4Addr(queries[0].interval.start).String() != "192.0.2.0" || ipv4Addr(queries[0].interval.end).String() != "192.0.2.255" {
-		t.Fatalf("unexpected blue query: %#v", queries[0])
+	if queries[0].view != "blue" || ipv4Addr(queries[0].interval.start).String() != "192.0.2.0" || ipv4Addr(queries[0].interval.end).String() != "192.0.2.127" {
+		t.Fatalf("unexpected first blue query: %#v", queries[0])
 	}
-	if queries[1].view != "green" || ipv4Addr(queries[1].interval.end).String() != "192.0.2.127" {
-		t.Fatalf("unexpected green query: %#v", queries[1])
+	if queries[1].view != "blue" || ipv4Addr(queries[1].interval.start).String() != "192.0.2.128" || ipv4Addr(queries[1].interval.end).String() != "192.0.2.255" {
+		t.Fatalf("unexpected second blue query: %#v", queries[1])
+	}
+	if queries[2].view != "green" || ipv4Addr(queries[2].interval.end).String() != "192.0.2.127" {
+		t.Fatalf("unexpected green query: %#v", queries[2])
 	}
 
 	cfg.IPv4InventoryScanRanges = []string{"192.0.2.0/25", "192.0.2.128/25"}
@@ -80,8 +87,8 @@ func TestInventoryQueryPlanning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(queries) != 2 || uniqueBoundedIntervals(queries) != 1 {
-		t.Fatalf("one merged scan interval should be queried once per view: %#v", queries)
+	if len(queries) != 4 || uniqueBoundedIntervals(queries) != 2 {
+		t.Fatalf("adjacent scan ranges should be queried separately per view: %#v", queries)
 	}
 
 	cfg.IPv4InventoryScanRanges = nil

@@ -173,7 +173,7 @@ func New(cfg config.Config, client *wapi.Client, logger *slog.Logger) *Exporter 
 		ipv4InventoryConfigured:   g("ipv4inventory_collector_configured", "Whether the IPv4 inventory collector has an explicit selector or scan range configured.", nil),
 		ipv4InventoryObjects:      g("ipv4inventory_objects", "IPv4 inventory objects at each processing stage.", []string{"stage"}),
 		ipv4InventorySelected:     g("ipv4inventory_selected_networks", "Number of unique networks selected for IPv4 inventory.", nil),
-		ipv4InventoryScanRanges:   g("ipv4inventory_scan_ranges", "Number of merged IPv4 inventory query intervals.", nil),
+		ipv4InventoryScanRanges:   g("ipv4inventory_scan_ranges", "Number of distinct IPv4 inventory query intervals.", nil),
 		ipv4InventoryAddressCount: g("ipv4inventory_address_count", "Occupied IPv4 inventory addresses by network and network view.", []string{"network", "network_view"}),
 		ipv4InventoryInfo: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "ipv4inventory_info"),
